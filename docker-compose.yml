@@ -1,0 +1,19 @@
+# Поднимает PostgreSQL в контейнере одной командой:  docker compose up -d
+# Остановить:  docker compose down   (данные сохранятся в томе pgdata)
+
+services:
+  db:
+    image: postgres:16          # официальный образ Postgres 16
+    container_name: spotwhere_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: spotwhere
+      POSTGRES_PASSWORD: spotwhere_pass
+      POSTGRES_DB: spotwhere
+    ports:
+      - "5433:5432"             # хост:контейнер. 5432 занят, берём 5433 на хосте
+    volumes:
+      - pgdata:/var/lib/postgresql/data   # данные переживают перезапуск
+
+volumes:
+  pgdata:

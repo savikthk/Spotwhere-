@@ -1,0 +1,6 @@
+aiogram
+python-dotenv
+gigachat
+fastapi
+uvicorn
+psycopg[binary]
