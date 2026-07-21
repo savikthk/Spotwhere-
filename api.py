@@ -1,12 +1,21 @@
-"""REST API Spotwhere на FastAPI. Логика подбора — в engine.py."""
+"""Spotwhere REST API (FastAPI). Recommendation logic lives in engine.py."""
 
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 import engine
 import db
 
 app = FastAPI(title="Spotwhere API")
+
+# Dev: allow the frontend (any origin) to call this API from the browser.
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 
 @app.get("/health")
