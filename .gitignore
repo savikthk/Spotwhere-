@@ -13,3 +13,6 @@ bot.log
 
 # База данных
 *.db
+
+# C++ build artifacts
+build/
