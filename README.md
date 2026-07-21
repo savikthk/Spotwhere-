@@ -1,60 +1,78 @@
-# Spotwhere 🗺️
+# Spotwhere
 
-Сервис, который советует, **куда сходить**, по описанию ситуации своими словами.
-Пишешь «тихое место вдвоём, бюджет 1500» → нейросеть разбирает запрос → бэкенд
-подбирает и ранжирует заведения → показывает подходящие варианты. Бот учится
-твоему вкусу по лайкам.
+Telegram Mini App, который советует, **куда сходить**, по описанию своими словами.
+Пишешь ситуацию («тихое место вдвоём, бюджет 1500») → LLM извлекает намерение →
+бэкенд ранжирует заведения и учится твоему вкусу по лайкам.
 
 ## Стек
-- **Python 3.13**
-- **aiogram** — Telegram-бот
-- **FastAPI** — REST API (бэкенд)
-- **GigaChat** — разбор запроса в признаки (LLM)
-- **PostgreSQL** (в Docker) — пользователи и их предпочтения
+- **Бэкенд:** C++ (Drogon), PostgreSQL, GigaChat (LLM)
+- **Фронтенд:** Telegram Mini App (HTML/CSS/JS), раздаётся самим бэкендом
+- **Прототип:** Python — aiogram-бот + FastAPI (файлы в корне), оставлен для истории
 
-## Архитектура
+## Структура
 ```
-engine.py   ← ядро: разбор запроса + подбор/ранжирование (общее)
-db.py       ← работа с PostgreSQL
-bot.py      ← Telegram-клиент (использует engine)
-api.py      ← REST API на FastAPI (использует engine)
-venues.json ← база заведений (временная, ручная)
+backend/            C++ бэкенд (Drogon): REST API + отдаёт Mini App
+frontend/           Telegram Mini App (статика)
+venues.json         база заведений (пока dev-сид)
+docker-compose.yml  PostgreSQL
+*.py                первый прототип на Python (бот + FastAPI)
 ```
-И бот, и API используют один `engine` — логика не дублируется.
 
-## Запуск (локально)
+## Требования (macOS / Homebrew)
 ```bash
-# 1. окружение
-python3 -m venv venv
-source venv/bin/activate
-pip install -r requirements.txt
+brew install cmake drogon libpq curl cloudflared
+```
+- Docker Desktop — для PostgreSQL
+- Ключ **GigaChat** (developers.sber.ru)
+- Телеграм-бот от **@BotFather** — чтобы открыть Mini App
 
-# 2. секреты
-cp .env.example .env      # затем впиши свои токены/ключи в .env
+## Установка
+```bash
+git clone https://github.com/savikthk/Spotwhere-.git
+cd Spotwhere-
 
-# 3. база данных (нужен запущенный Docker)
-docker compose up -d      # поднимет PostgreSQL на порту 5433
+cp .env.example .env      # впиши свой GIGACHAT_KEY
+docker compose up -d      # PostgreSQL на localhost:5433
 
-# 4a. запустить бота
-python bot.py
-
-# 4b. или запустить API-сервер
-uvicorn api:app --reload  # docs: http://127.0.0.1:8000/docs
+cd backend
+cmake -B build
+cmake --build build
 ```
 
-## REST API
-| Метод | Путь | Что делает |
-|-------|------|-----------|
-| GET | `/health` | проверка, что сервер жив |
-| GET | `/venues` | список всех заведений |
-| POST | `/recommend` | подбор мест по запросу `{text, user_id}` |
-| POST | `/like` | лайк места `{user_id, venue_id}` (учится вкусу) |
+## Запуск
+Из папки `backend/` — подгрузить окружение и стартовать:
+```bash
+set -a; source ../.env; set +a
+./build/spotwhere_backend
+```
+Открой в браузере **http://localhost:8080**.
 
-## Планы
-- [ ] Telegram Mini App (фронт на React)
+## Открыть как Telegram Mini App
+Телеграм пускает Mini App только по HTTPS, поэтому нужен туннель:
+```bash
+cloudflared tunnel --url http://localhost:8080
+```
+Скопируй выданный `https://…trycloudflare.com` →
+**@BotFather → /mybots → свой бот → Bot Settings → Menu Button** → вставь адрес.
+Открой бота → кнопка меню → приложение загрузится в Телеграме.
+
+> Бесплатный туннель меняет адрес при каждом перезапуске — обновляй его в BotFather.
+
+## API
+| Метод | Путь | Тело | Что делает |
+|-------|------|------|-----------|
+| GET | `/health` | — | проверка |
+| GET | `/venues` | — | список заведений |
+| POST | `/recommend` | `{text, user_id}` | подбор мест по запросу |
+| POST | `/like` | `{user_id, venue_id}` | лайк (учёт вкуса) |
+
+## Конфигурация
+Секреты лежат в `.env` (не в репозитории) — шаблон в `.env.example`.
+Dev-креды PostgreSQL заданы в `docker-compose.yml`.
+
+## Roadmap
+- [ ] Валидация initData (HMAC) — доверенный user_id
 - [ ] Реальные данные заведений (OpenStreetMap)
 - [ ] Гео-поиск (PostGIS)
-- [ ] Сессии «выбрать вместе» с другом
-
----
-Учебно-командный проект. Секреты (`.env`) в репозиторий не коммитим.
+- [ ] Сессии «выбрать вместе»
+- [ ] React-фронтенд с продакшн-дизайном
