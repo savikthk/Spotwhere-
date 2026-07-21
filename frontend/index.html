@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Spotwhere</title>
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header>
+    <h1>Spotwhere</h1>
+    <nav class="tabs">
+      <button class="tab active" data-screen="search">Подбор</button>
+      <button class="tab" data-screen="places">Все места</button>
+      <button class="tab" data-screen="about">О сервисе</button>
+    </nav>
+  </header>
+
+  <main>
+    <!-- Экран: подбор -->
+    <section id="screen-search" class="screen active">
+      <p class="hint">Опиши, куда хочешь — «тихо вдвоём», «шумно с друзьями»…</p>
+      <form id="search-form">
+        <input id="query" placeholder="Твой запрос…" autocomplete="off">
+        <button type="submit">Найти</button>
+      </form>
+      <div id="results"></div>
+    </section>
+
+    <!-- Экран: все места -->
+    <section id="screen-places" class="screen">
+      <p class="hint">Вся база заведений</p>
+      <div id="places"></div>
+    </section>
+
+    <!-- Экран: о сервисе -->
+    <section id="screen-about" class="screen">
+      <h2>Как это работает</h2>
+      <p>Опиши ситуацию своими словами — нейросеть поймёт настроение, компанию и бюджет,
+         а Spotwhere подберёт подходящие места и запомнит, что тебе нравится.</p>
+      <p class="muted">Учебно-командный проект. Backend: C++ (Drogon) + PostgreSQL + GigaChat.</p>
+    </section>
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>
