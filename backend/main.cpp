@@ -1,16 +1,18 @@
 #include <drogon/drogon.h>
 #include <libpq-fe.h>
 #include <curl/curl.h>
-#include <fstream>
 #include <string>
 #include <vector>
 #include <map>
 #include <random>
 #include <algorithm>
 #include <cstdlib>
+#include <cmath>
 
 static const std::string DB_CONN =
     "host=localhost port=5433 dbname=spotwhere user=spotwhere password=spotwhere_pass";
+static const double RADIUS_KM = 5.0;   // радиус гео-поиска
+static const double PI = 3.14159265358979323846;
 
 static std::string gigachatKey()
 {
@@ -20,20 +22,48 @@ static std::string gigachatKey()
 
 static const std::string SYSTEM_PROMPT =
     "Ты — модуль разбора запроса сервиса, который советует, куда сходить.\n"
-    "Пользователь описывает ситуацию своими словами. Извлеки признаки и верни\n"
-    "СТРОГО JSON без пояснений, по схеме:\n"
+    "Извлеки признаки из запроса и верни СТРОГО JSON без пояснений, по схеме:\n"
     "{\n"
     "  \"mood\": \"тихо\" | \"шумно\" | \"романтика\" | \"\",\n"
-    "  \"company\": \"вдвоём\" | \"компания\" | \"\",\n"
-    "  \"budget_max\": число в рублях, или 1000000 если не указан\n"
+    "  \"company\": \"вдвоём\" | \"компания\" | \"друзья\" | \"один\" | \"\",\n"
+    "  \"category\": \"кафе\" | \"ресторан\" | \"бар\" | \"паб\" | \"быстро\" | \"клуб\" | \"кальянная\" | \"компьютерный клуб\" | \"\",\n"
+    "  \"location\": \"район, улица, станция метро или ориентир из запроса, иначе пусто\",\n"
+    "  \"features\": массив из набора [веранда, wifi, для работы, живая музыка, крафт, веган, круглосуточно],\n"
+    "  \"budget_max\": число в рублях или 1000000 если не указан\n"
     "}\n"
     "Отвечай ТОЛЬКО валидным JSON.";
 
+static Json::Value parseJson(const std::string &s);   // forward declaration
+
+// Загружаем все заведения из таблицы Postgres в память при старте.
 static Json::Value loadVenues()
 {
-    std::ifstream file("venues.json");
-    Json::Value venues;
-    file >> venues;
+    Json::Value venues(Json::arrayValue);
+    PGconn *conn = PQconnectdb(DB_CONN.c_str());
+    if (PQstatus(conn) == CONNECTION_OK)
+    {
+        PGresult *res = PQexec(conn,
+            "SELECT id, name, description, array_to_json(tags)::text, "
+            "avg_bill, lat, lon, maps_url, COALESCE(address, '') FROM venues");
+        if (PQresultStatus(res) == PGRES_TUPLES_OK)
+            for (int i = 0; i < PQntuples(res); ++i)
+            {
+                Json::Value v;
+                v["id"] = std::atoi(PQgetvalue(res, i, 0));
+                v["name"] = PQgetvalue(res, i, 1);
+                v["description"] = PQgetvalue(res, i, 2);
+                v["tags"] = parseJson(PQgetvalue(res, i, 3));
+                v["avg_bill"] = std::atoi(PQgetvalue(res, i, 4));
+                v["lat"] = std::atof(PQgetvalue(res, i, 5));
+                v["lon"] = std::atof(PQgetvalue(res, i, 6));
+                v["maps_url"] = PQgetvalue(res, i, 7);
+                v["address"] = PQgetvalue(res, i, 8);
+                venues.append(v);
+            }
+        PQclear(res);
+    }
+    PQfinish(conn);
+    LOG_INFO << "Loaded " << venues.size() << " venues from Postgres";
     return venues;
 }
 
@@ -75,17 +105,32 @@ static std::string httpPost(const std::string &url, const std::string &body,
     struct curl_slist *hdrs = nullptr;
     for (const auto &h : headers)
         hdrs = curl_slist_append(hdrs, h.c_str());
-
     curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
     curl_easy_setopt(curl, CURLOPT_POSTFIELDS, body.c_str());
     curl_easy_setopt(curl, CURLOPT_HTTPHEADER, hdrs);
     curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, writeCb);
     curl_easy_setopt(curl, CURLOPT_WRITEDATA, &resp);
-    // GigaChat uses Russian CA certs that aren't in the default trust store.
     curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L);
     curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 0L);
     curl_easy_perform(curl);
+    curl_slist_free_all(hdrs);
+    curl_easy_cleanup(curl);
+    return resp;
+}
 
+static std::string httpGet(const std::string &url)
+{
+    CURL *curl = curl_easy_init();
+    std::string resp;
+    struct curl_slist *hdrs = curl_slist_append(nullptr, "User-Agent: spotwhere/1.0");
+    curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
+    curl_easy_setopt(curl, CURLOPT_HTTPHEADER, hdrs);
+    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, writeCb);
+    curl_easy_setopt(curl, CURLOPT_WRITEDATA, &resp);
+    curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
+    curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L);
+    curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 0L);
+    curl_easy_perform(curl);
     curl_slist_free_all(hdrs);
     curl_easy_cleanup(curl);
     return resp;
@@ -99,6 +144,36 @@ static Json::Value parseJson(const std::string &s)
     std::unique_ptr<Json::CharReader> reader(b.newCharReader());
     reader->parse(s.c_str(), s.c_str() + s.size(), &v, &err);
     return v;
+}
+
+// Геокодинг места через Nominatim (OSM). Возвращает true и заполняет lat/lon.
+static bool geocode(const std::string &place, double &lat, double &lon)
+{
+    CURL *c = curl_easy_init();
+    std::string query = place + ", Москва";   // привязка к городу для точности (метро/районы)
+    char *esc = curl_easy_escape(c, query.c_str(), 0);
+    std::string url = "https://nominatim.openstreetmap.org/search?format=json&limit=1&q=" + std::string(esc);
+    curl_free(esc);
+    curl_easy_cleanup(c);
+
+    Json::Value arr = parseJson(httpGet(url));
+    if (arr.isArray() && !arr.empty())
+    {
+        lat = std::atof(arr[0]["lat"].asString().c_str());
+        lon = std::atof(arr[0]["lon"].asString().c_str());
+        return true;
+    }
+    return false;
+}
+
+static double haversineKm(double lat1, double lon1, double lat2, double lon2)
+{
+    double dLat = (lat2 - lat1) * PI / 180.0;
+    double dLon = (lon2 - lon1) * PI / 180.0;
+    double a = std::sin(dLat / 2) * std::sin(dLat / 2) +
+               std::cos(lat1 * PI / 180.0) * std::cos(lat2 * PI / 180.0) *
+               std::sin(dLon / 2) * std::sin(dLon / 2);
+    return 6371.0 * 2 * std::atan2(std::sqrt(a), std::sqrt(1 - a));
 }
 
 static std::string gigaToken()
@@ -115,17 +190,20 @@ static std::string gigaToken()
     return parseJson(resp)["access_token"].asString();
 }
 
-// Ask GigaChat to turn free text into {mood, company, budget_max}.
+// Свободный текст -> структурированный запрос.
 static Json::Value parseText(const std::string &text)
 {
-    Json::Value features;
-    features["mood"] = "";
-    features["company"] = "";
-    features["budget_max"] = 1000000;
+    Json::Value f;
+    f["mood"] = "";
+    f["company"] = "";
+    f["category"] = "";
+    f["location"] = "";
+    f["features"] = Json::Value(Json::arrayValue);
+    f["budget_max"] = 1000000;
 
     std::string token = gigaToken();
     if (token.empty())
-        return features;
+        return f;
 
     Json::Value payload;
     payload["model"] = "GigaChat";
@@ -145,17 +223,20 @@ static Json::Value parseText(const std::string &text)
 
     std::string content =
         parseJson(resp)["choices"][0]["message"]["content"].asString();
-
     auto s = content.find('{'), e = content.rfind('}');
     if (s == std::string::npos || e == std::string::npos)
-        return features;
+        return f;
 
     Json::Value data = parseJson(content.substr(s, e - s + 1));
-    features["mood"] = data.get("mood", "").asString();
-    features["company"] = data.get("company", "").asString();
+    f["mood"] = data.get("mood", "").asString();
+    f["company"] = data.get("company", "").asString();
+    f["category"] = data.get("category", "").asString();
+    f["location"] = data.get("location", "").asString();
+    if (data.isMember("features") && data["features"].isArray())
+        f["features"] = data["features"];
     if (data.isMember("budget_max") && data["budget_max"].isInt())
-        features["budget_max"] = data["budget_max"].asInt();
-    return features;
+        f["budget_max"] = data["budget_max"].asInt();
+    return f;
 }
 
 static std::map<std::string, double> getWeights(long userId)
@@ -178,7 +259,6 @@ static std::map<std::string, double> getWeights(long userId)
     return weights;
 }
 
-// Add delta to a tag's weight (update if present, otherwise insert).
 static void saveWeight(long userId, const std::string &tag, double delta)
 {
     PGconn *conn = PQconnectdb(DB_CONN.c_str());
@@ -192,7 +272,6 @@ static void saveWeight(long userId, const std::string &tag, double delta)
         bool exists = PQresultStatus(res) == PGRES_TUPLES_OK && PQntuples(res) > 0;
         double current = exists ? std::atof(PQgetvalue(res, 0, 0)) : 0.0;
         PQclear(res);
-
         if (exists)
         {
             std::string w = std::to_string(current + delta);
@@ -223,19 +302,44 @@ static bool hasTag(const Json::Value &venue, const std::string &value)
     return false;
 }
 
-static Json::Value rankVenues(const Json::Value &venues, const std::string &mood,
-                              const std::string &company, int budgetMax,
-                              const std::map<std::string, double> &weights)
+static bool knownCategory(const std::string &c)
 {
+    return c == "кафе" || c == "ресторан" || c == "бар" || c == "паб" || c == "быстро" ||
+           c == "клуб" || c == "кальянная" || c == "компьютерный клуб";
+}
+
+static Json::Value rankVenues(const Json::Value &venues, const Json::Value &f,
+                              const std::map<std::string, double> &weights,
+                              bool hasGeo, double geoLat, double geoLon)
+{
+    std::string mood = f["mood"].asString();
+    std::string company = f["company"].asString();
+    std::string category = f["category"].asString();
+    int budgetMax = f["budget_max"].asInt();
+    std::vector<std::string> feats;
+    for (const auto &x : f["features"])
+        feats.push_back(x.asString());
+
     std::vector<std::pair<double, Json::Value>> scored;
     for (const auto &venue : venues)
     {
         if (venue["avg_bill"].asInt() > budgetMax)
             continue;
+        if (!category.empty() && !hasTag(venue, category))   // фильтр по категории
+            continue;
+        if (hasGeo)                                          // фильтр по расстоянию
+        {
+            double d = haversineKm(geoLat, geoLon, venue["lat"].asDouble(), venue["lon"].asDouble());
+            if (d > RADIUS_KM)
+                continue;
+        }
+
         double score = 0;
         if (hasTag(venue, mood)) score += 1;
         if (hasTag(venue, company)) score += 1;
-        for (const auto &tag : venue["tags"])
+        for (const auto &ft : feats)                         // совпадение фич
+            if (hasTag(venue, ft)) score += 1;
+        for (const auto &tag : venue["tags"])                // вкус пользователя
         {
             auto it = weights.find(tag.asString());
             if (it != weights.end())
@@ -310,13 +414,34 @@ int main()
             long userId = (body && body->isMember("user_id"))
                               ? (*body)["user_id"].asLargestInt() : 0;
 
-            Json::Value features = parseText(text);
+            Json::Value f = parseText(text);
+
+            // неизвестную категорию (клуб, кальянная…) жёстко не фильтруем
+            if (!knownCategory(f["category"].asString()))
+                f["category"] = "";
+
+            bool hasGeo = false;
+            double geoLat = 0, geoLon = 0;
+            std::string loc = f["location"].asString();
+            if (!loc.empty())
+                hasGeo = geocode(loc, geoLat, geoLon);
+
             auto weights = getWeights(userId);
 
+            Json::Value results = rankVenues(venues, f, weights, hasGeo, geoLat, geoLon);
+            // деградация: пусто → снимаем категорию → затем гео (никогда не тупик)
+            if (results.empty() && !f["category"].asString().empty())
+            {
+                Json::Value relaxed = f;
+                relaxed["category"] = "";
+                results = rankVenues(venues, relaxed, weights, hasGeo, geoLat, geoLon);
+            }
+            if (results.empty() && hasGeo)
+                results = rankVenues(venues, f, weights, false, 0, 0);
+
             Json::Value out;
-            out["results"] = rankVenues(
-                venues, features["mood"].asString(), features["company"].asString(),
-                features["budget_max"].asInt(), weights);
+            out["query"] = f;
+            out["results"] = results;
             callback(jsonResponse(out));
         },
         {drogon::Post});
@@ -331,7 +456,6 @@ int main()
                               ? (*body)["user_id"].asLargestInt() : 0;
             int venueId = (body && body->isMember("venue_id"))
                               ? (*body)["venue_id"].asInt() : 0;
-
             for (const auto &venue : venues)
                 if (venue["id"].asInt() == venueId)
                 {
@@ -339,7 +463,6 @@ int main()
                         saveWeight(userId, tag.asString(), 0.2);
                     break;
                 }
-
             Json::Value out;
             out["status"] = "ok";
             callback(jsonResponse(out));
