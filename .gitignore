@@ -16,3 +16,6 @@ bot.log
 
 # C++ build artifacts
 build/
+
+# Сгенерированная база (собирается fetch_venues.py + load_to_db.py)
+venues.json
