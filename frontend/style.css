@@ -40,9 +40,11 @@ form button {
 }
 .card h3 { margin: 0 0 4px; }
 .card p { margin: 4px 0; color: #555; }
+.card .addr { color: #777; font-size: 14px; }
 .card .bill { color: #16a34a; font-weight: 600; }
-.card button {
-  margin-top: 10px; padding: 8px 14px; border: 0; border-radius: 8px;
-  background: #16a34a; color: #fff; cursor: pointer;
-}
-.card button:disabled { background: #9ca3af; }
+
+.actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+.actions button { padding: 8px 12px; border: 0; border-radius: 8px; font-size: 14px; cursor: pointer; }
+.actions .link { background: #eef2ff; color: #2563eb; }
+.actions .like { background: #16a34a; color: #fff; }
+.actions .like:disabled { background: #9ca3af; }
