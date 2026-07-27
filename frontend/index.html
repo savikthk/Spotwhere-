@@ -1,47 +1,36 @@
 <!doctype html>
-<html lang="ru">
+<html lang="en">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>Spotwhere</title>
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
+  <script src="https://api-maps.yandex.ru/2.1/?apikey=b312151b-44ee-422f-b420-cb8fda34a732&lang=ru_RU"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Sono:wght@200;300;400;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
+  <div class="bg" aria-hidden="true">
+    <span class="blob lime"></span>
+    <span class="blob olive1"></span>
+    <span class="blob olive2"></span>
+  </div>
+
   <header>
-    <h1>Spotwhere</h1>
-    <nav class="tabs">
-      <button class="tab active" data-screen="search">Подбор</button>
-      <button class="tab" data-screen="places">Все места</button>
-      <button class="tab" data-screen="about">О сервисе</button>
-    </nav>
+    <h1>SPOTWHERE</h1>
+    <p class="sub">The evening begins with one message</p>
+    <p class="examples">Describe where you want to go — "to a club with friends," "an Italian restaurant for around five thousand rubles."</p>
   </header>
 
-  <main>
-    <!-- Экран: подбор -->
-    <section id="screen-search" class="screen active">
-      <p class="hint">Опиши, куда хочешь — «тихо вдвоём», «шумно с друзьями»…</p>
-      <form id="search-form">
-        <input id="query" placeholder="Твой запрос…" autocomplete="off">
-        <button type="submit">Найти</button>
-      </form>
-      <div id="results"></div>
-    </section>
+  <form id="search-form" class="search">
+    <input id="query" placeholder="..." autocomplete="off">
+    <button type="button" id="clear" class="clear" aria-label="Clear">✕</button>
+    <button type="submit" class="find">Find</button>
+  </form>
 
-    <!-- Экран: все места -->
-    <section id="screen-places" class="screen">
-      <p class="hint">Вся база заведений</p>
-      <div id="places"></div>
-    </section>
-
-    <!-- Экран: о сервисе -->
-    <section id="screen-about" class="screen">
-      <h2>Как это работает</h2>
-      <p>Опиши ситуацию своими словами — нейросеть поймёт настроение, компанию и бюджет,
-         а Spotwhere подберёт подходящие места и запомнит, что тебе нравится.</p>
-      <p class="muted">Учебно-командный проект. Backend: C++ (Drogon) + PostgreSQL + GigaChat.</p>
-    </section>
-  </main>
+  <div id="stack" class="stack"></div>
 
   <script src="app.js"></script>
 </body>
