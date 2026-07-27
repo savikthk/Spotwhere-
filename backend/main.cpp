@@ -4,14 +4,18 @@
 #include <string>
 #include <vector>
 #include <map>
+#include <set>
 #include <random>
 #include <algorithm>
 #include <cstdlib>
 #include <cmath>
+#include <ctime>
+#include <mutex>
+#include <thread>
+#include <chrono>
 
 static const std::string DB_CONN =
     "host=localhost port=5433 dbname=spotwhere user=spotwhere password=spotwhere_pass";
-static const double RADIUS_KM = 5.0;   // радиус гео-поиска
 static const double PI = 3.14159265358979323846;
 
 static std::string gigachatKey()
@@ -26,8 +30,9 @@ static const std::string SYSTEM_PROMPT =
     "{\n"
     "  \"mood\": \"тихо\" | \"шумно\" | \"романтика\" | \"\",\n"
     "  \"company\": \"вдвоём\" | \"компания\" | \"друзья\" | \"один\" | \"\",\n"
-    "  \"category\": \"кафе\" | \"ресторан\" | \"бар\" | \"паб\" | \"быстро\" | \"клуб\" | \"кальянная\" | \"компьютерный клуб\" | \"\",\n"
+    "  \"category\": одно из [кафе, ресторан, бар, паб, быстро, клуб, кальянная, компьютерный клуб, кино, баня, спа, боулинг, квест, батутный центр, аквапарк, танцы, игровые автоматы] или \"\",\n"
     "  \"location\": \"район, улица, станция метро или ориентир из запроса, иначе пусто\",\n"
+    "  \"precise\": true если указана конкретная точка (метро/адрес/ориентир), false для района или если места нет,\n"
     "  \"features\": массив из набора [веранда, wifi, для работы, живая музыка, крафт, веган, круглосуточно],\n"
     "  \"budget_max\": число в рублях или 1000000 если не указан\n"
     "}\n"
@@ -130,6 +135,7 @@ static std::string httpGet(const std::string &url)
     curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
     curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L);
     curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 0L);
+    curl_easy_setopt(curl, CURLOPT_TIMEOUT, 20L);
     curl_easy_perform(curl);
     curl_slist_free_all(hdrs);
     curl_easy_cleanup(curl);
@@ -149,6 +155,21 @@ static Json::Value parseJson(const std::string &s)
 // Геокодинг места через Nominatim (OSM). Возвращает true и заполняет lat/lon.
 static bool geocode(const std::string &place, double &lat, double &lon)
 {
+    // Кэш: одна точка (метро/район) не меняется — не дёргаем Nominatim повторно,
+    // это даёт детерминизм (одинаковый запрос = одинаковый результат) и скорость.
+    static std::map<std::string, std::pair<double, double>> cache;
+    static std::mutex mtx;
+    {
+        std::lock_guard<std::mutex> lk(mtx);
+        auto it = cache.find(place);
+        if (it != cache.end())
+        {
+            lat = it->second.first;
+            lon = it->second.second;
+            return true;
+        }
+    }
+
     CURL *c = curl_easy_init();
     std::string query = place + ", Москва";   // привязка к городу для точности (метро/районы)
     char *esc = curl_easy_escape(c, query.c_str(), 0);
@@ -156,12 +177,19 @@ static bool geocode(const std::string &place, double &lat, double &lon)
     curl_free(esc);
     curl_easy_cleanup(c);
 
-    Json::Value arr = parseJson(httpGet(url));
-    if (arr.isArray() && !arr.empty())
+    // Nominatim флапает по рейт-лимиту → 3 попытки с паузой, иначе гео молча отключалось
+    for (int attempt = 0; attempt < 3; ++attempt)
     {
-        lat = std::atof(arr[0]["lat"].asString().c_str());
-        lon = std::atof(arr[0]["lon"].asString().c_str());
-        return true;
+        Json::Value arr = parseJson(httpGet(url));
+        if (arr.isArray() && !arr.empty())
+        {
+            lat = std::atof(arr[0]["lat"].asString().c_str());
+            lon = std::atof(arr[0]["lon"].asString().c_str());
+            std::lock_guard<std::mutex> lk(mtx);
+            cache[place] = {lat, lon};
+            return true;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(700));
     }
     return false;
 }
@@ -178,6 +206,12 @@ static double haversineKm(double lat1, double lon1, double lat2, double lon2)
 
 static std::string gigaToken()
 {
+    // Кэшируем токен (~25 мин), чтобы не дёргать OAuth на каждый запрос.
+    static std::string cached;
+    static time_t expiry = 0;
+    if (!cached.empty() && time(nullptr) < expiry)
+        return cached;
+
     std::vector<std::string> headers = {
         "Content-Type: application/x-www-form-urlencoded",
         "Accept: application/json",
@@ -187,7 +221,9 @@ static std::string gigaToken()
     std::string resp = httpPost(
         "https://ngw.devices.sberbank.ru:9443/api/v2/oauth",
         "scope=GIGACHAT_API_PERS", headers);
-    return parseJson(resp)["access_token"].asString();
+    cached = parseJson(resp)["access_token"].asString();
+    expiry = time(nullptr) + 1500;
+    return cached;
 }
 
 // Свободный текст -> структурированный запрос.
@@ -198,6 +234,7 @@ static Json::Value parseText(const std::string &text)
     f["company"] = "";
     f["category"] = "";
     f["location"] = "";
+    f["precise"] = false;
     f["features"] = Json::Value(Json::arrayValue);
     f["budget_max"] = 1000000;
 
@@ -232,11 +269,80 @@ static Json::Value parseText(const std::string &text)
     f["company"] = data.get("company", "").asString();
     f["category"] = data.get("category", "").asString();
     f["location"] = data.get("location", "").asString();
+    f["precise"] = data.get("precise", false).asBool();
     if (data.isMember("features") && data["features"].isArray())
         f["features"] = data["features"];
     if (data.isMember("budget_max") && data["budget_max"].isInt())
         f["budget_max"] = data["budget_max"].asInt();
     return f;
+}
+
+// ИИ выбирает лучшие места из шортлиста и объясняет почему.
+// ИИ выбирает до 5 самых подходящих мест из шортлиста. Пусто — если что-то пошло не так.
+static Json::Value aiRerank(const std::string &text, const Json::Value &shortlist)
+{
+    Json::Value out(Json::arrayValue);
+    if (shortlist.empty())
+        return out;
+
+    std::string token = gigaToken();
+    if (token.empty())
+        return out;
+
+    std::string listing;
+    for (const auto &v : shortlist)
+    {
+        listing += std::to_string(v["id"].asInt()) + ". " + v["name"].asString() +
+                   " — " + v["description"].asString() + " — теги:";
+        for (const auto &t : v["tags"])
+            listing += " " + t.asString();
+        listing += " — ~" + std::to_string(v["avg_bill"].asInt()) + " руб\n";
+    }
+
+    std::string prompt =
+        "Пользователь ищет: \"" + text + "\".\n"
+        "Кандидаты:\n" + listing +
+        "Выбери до 5 самых подходящих под запрос (лучшие первыми). Верни СТРОГО "
+        "JSON-массив id без пояснений, например: [12, 7, 3]";
+
+    Json::Value payload;
+    payload["model"] = "GigaChat";
+    Json::Value msg;
+    msg["role"] = "user";
+    msg["content"] = prompt;
+    payload["messages"].append(msg);
+    payload["temperature"] = 0.2;
+
+    Json::StreamWriterBuilder wb;
+    std::string resp = httpPost(
+        "https://gigachat.devices.sberbank.ru/api/v1/chat/completions",
+        Json::writeString(wb, payload),
+        {"Content-Type: application/json", "Accept: application/json",
+         "Authorization: Bearer " + token});
+
+    std::string content =
+        parseJson(resp)["choices"][0]["message"]["content"].asString();
+    auto s = content.find('['), e = content.rfind(']');
+    if (s == std::string::npos || e == std::string::npos)
+        return out;
+
+    Json::Value picks = parseJson(content.substr(s, e - s + 1));
+    if (!picks.isArray())
+        return out;
+
+    for (const auto &p : picks)
+    {
+        int id = p.isObject() ? p["id"].asInt() : p.asInt();   // терпим и [12,7] и [{"id":12}]
+        for (const auto &v : shortlist)
+            if (v["id"].asInt() == id)
+            {
+                out.append(v);
+                break;
+            }
+        if (out.size() >= 5)
+            break;
+    }
+    return out;
 }
 
 static std::map<std::string, double> getWeights(long userId)
@@ -305,12 +411,14 @@ static bool hasTag(const Json::Value &venue, const std::string &value)
 static bool knownCategory(const std::string &c)
 {
     return c == "кафе" || c == "ресторан" || c == "бар" || c == "паб" || c == "быстро" ||
-           c == "клуб" || c == "кальянная" || c == "компьютерный клуб";
+           c == "клуб" || c == "кальянная" || c == "компьютерный клуб" || c == "кино" ||
+           c == "баня" || c == "спа" || c == "боулинг" || c == "квест" ||
+           c == "батутный центр" || c == "аквапарк" || c == "танцы" || c == "игровые автоматы";
 }
 
 static Json::Value rankVenues(const Json::Value &venues, const Json::Value &f,
                               const std::map<std::string, double> &weights,
-                              bool hasGeo, double geoLat, double geoLon)
+                              bool hasGeo, double geoLat, double geoLon, double radiusKm)
 {
     std::string mood = f["mood"].asString();
     std::string company = f["company"].asString();
@@ -319,6 +427,9 @@ static Json::Value rankVenues(const Json::Value &venues, const Json::Value &f,
     std::vector<std::string> feats;
     for (const auto &x : f["features"])
         feats.push_back(x.asString());
+
+    // Если активен жёсткий фильтр — место релевантно само по себе (даже с 0 вайб-баллом).
+    bool hardFilter = !category.empty() || hasGeo || budgetMax < 1000000;
 
     std::vector<std::pair<double, Json::Value>> scored;
     for (const auto &venue : venues)
@@ -330,7 +441,7 @@ static Json::Value rankVenues(const Json::Value &venues, const Json::Value &f,
         if (hasGeo)                                          // фильтр по расстоянию
         {
             double d = haversineKm(geoLat, geoLon, venue["lat"].asDouble(), venue["lon"].asDouble());
-            if (d > RADIUS_KM)
+            if (d > radiusKm)
                 continue;
         }
 
@@ -345,15 +456,24 @@ static Json::Value rankVenues(const Json::Value &venues, const Json::Value &f,
             if (it != weights.end())
                 score += it->second;
         }
-        if (score > 0)
+        if (score > 0 || hardFilter)
             scored.push_back({score, venue});
     }
     std::sort(scored.begin(), scored.end(),
               [](const auto &a, const auto &b) { return a.first > b.first; });
 
     Json::Value results(Json::arrayValue);
-    for (size_t i = 0; i < scored.size() && i < 5; ++i)
-        results.append(scored[i].second);
+    std::set<std::string> seen;   // одно название — один раз (лучшая точка сети)
+    for (const auto &[score, venue] : scored)
+    {
+        std::string name = venue["name"].asString();
+        if (seen.count(name))
+            continue;
+        seen.insert(name);
+        results.append(venue);
+        if (results.size() >= 15)
+            break;
+    }
     return results;
 }
 
@@ -421,23 +541,38 @@ int main()
                 f["category"] = "";
 
             bool hasGeo = false;
-            double geoLat = 0, geoLon = 0;
+            double geoLat = 0, geoLon = 0, radiusKm = 2.0;   // район — по умолчанию
             std::string loc = f["location"].asString();
             if (!loc.empty())
+            {
                 hasGeo = geocode(loc, geoLat, geoLon);
+                // конкретная точка (метро/адрес) → шаговая доступность
+                bool precise = f["precise"].asBool() ||
+                               loc.find("метро") != std::string::npos ||
+                               loc.find("Метро") != std::string::npos;
+                radiusKm = precise ? 0.8 : 2.0;
+            }
 
             auto weights = getWeights(userId);
 
-            Json::Value results = rankVenues(venues, f, weights, hasGeo, geoLat, geoLon);
-            // деградация: пусто → снимаем категорию → затем гео (никогда не тупик)
-            if (results.empty() && !f["category"].asString().empty())
+            Json::Value shortlist = rankVenues(venues, f, weights, hasGeo, geoLat, geoLon, radiusKm);
+            // деградация: пусто → снимаем категорию
+            if (shortlist.empty() && !f["category"].asString().empty())
             {
                 Json::Value relaxed = f;
                 relaxed["category"] = "";
-                results = rankVenues(venues, relaxed, weights, hasGeo, geoLat, geoLon);
+                shortlist = rankVenues(venues, relaxed, weights, hasGeo, geoLat, geoLon, radiusKm);
             }
-            if (results.empty() && hasGeo)
-                results = rankVenues(venues, f, weights, false, 0, 0);
+            // всё ещё пусто и есть гео → РАСШИРЯЕМ радиус, но гео НЕ выключаем
+            // (иначе на «бар у метро X» вылезали бары со всей Москвы)
+            for (double r = radiusKm + 1.5; shortlist.empty() && hasGeo && r <= 5.0; r += 1.5)
+                shortlist = rankVenues(venues, f, weights, true, geoLat, geoLon, r);
+
+            // ИИ выбирает лучшие из шортлиста и объясняет; фолбэк — первые 5 алгоритма
+            Json::Value results = aiRerank(text, shortlist);
+            if (results.empty())
+                for (Json::ArrayIndex i = 0; i < shortlist.size() && i < 5; ++i)
+                    results.append(shortlist[i]);
 
             Json::Value out;
             out["query"] = f;
@@ -461,6 +596,29 @@ int main()
                 {
                     for (const auto &tag : venue["tags"])
                         saveWeight(userId, tag.asString(), 0.2);
+                    break;
+                }
+            Json::Value out;
+            out["status"] = "ok";
+            callback(jsonResponse(out));
+        },
+        {drogon::Post});
+
+    drogon::app().registerHandler(
+        "/dislike",
+        [venues](const drogon::HttpRequestPtr &req,
+                 std::function<void(const drogon::HttpResponsePtr &)> &&callback)
+        {
+            auto body = req->getJsonObject();
+            long userId = (body && body->isMember("user_id"))
+                              ? (*body)["user_id"].asLargestInt() : 0;
+            int venueId = (body && body->isMember("venue_id"))
+                              ? (*body)["venue_id"].asInt() : 0;
+            for (const auto &venue : venues)
+                if (venue["id"].asInt() == venueId)
+                {
+                    for (const auto &tag : venue["tags"])
+                        saveWeight(userId, tag.asString(), -0.1);
                     break;
                 }
             Json::Value out;
