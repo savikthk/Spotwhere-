@@ -6,16 +6,18 @@ Telegram Mini App, который советует, **куда сходить**,
 
 ## Стек
 - **Бэкенд:** C++ (Drogon), PostgreSQL, GigaChat (LLM)
-- **Фронтенд:** Telegram Mini App (HTML/CSS/JS), раздаётся самим бэкендом
-- **Прототип:** Python — aiogram-бот + FastAPI (файлы в корне), оставлен для истории
+- **Фронтенд:** Telegram Mini App (HTML/CSS/JS + Yandex Maps JS API), раздаётся самим бэкендом
+- **Пайплайн данных:** Python-скрипты — сбор заведений из OpenStreetMap → обогащение вайб-тегами через LLM → загрузка в PostgreSQL
 
 ## Структура
 ```
 backend/            C++ бэкенд (Drogon): REST API + отдаёт Mini App
 frontend/           Telegram Mini App (статика)
-venues.json         база заведений (пока dev-сид)
+fetch_venues.py     сбор заведений из OpenStreetMap (Overpass) → venues.json
+enrich_venues.py    обогащение вайб-тегами через GigaChat
+load_to_db.py       загрузка venues.json в PostgreSQL
+venues.json         собранная база заведений
 docker-compose.yml  PostgreSQL
-*.py                первый прототип на Python (бот + FastAPI)
 ```
 
 ## Требования (macOS / Homebrew)
@@ -47,6 +49,15 @@ set -a; source ../.env; set +a
 ```
 Открой в браузере **http://localhost:8080**.
 
+## Наполнить базу заведений
+Пайплайн на Python (нужны зависимости из `requirements.txt`):
+```bash
+pip install -r requirements.txt
+python fetch_venues.py     # OpenStreetMap → venues.json
+python enrich_venues.py    # добавить вайб-теги через LLM
+python load_to_db.py       # залить в PostgreSQL
+```
+
 ## Открыть как Telegram Mini App
 Телеграм пускает Mini App только по HTTPS, поэтому нужен туннель:
 ```bash
@@ -65,14 +76,16 @@ cloudflared tunnel --url http://localhost:8080
 | GET | `/venues` | — | список заведений |
 | POST | `/recommend` | `{text, user_id}` | подбор мест по запросу |
 | POST | `/like` | `{user_id, venue_id}` | лайк (учёт вкуса) |
+| POST | `/dislike` | `{user_id, venue_id}` | дизлайк (учёт вкуса) |
 
 ## Конфигурация
 Секреты лежат в `.env` (не в репозитории) — шаблон в `.env.example`.
 Dev-креды PostgreSQL заданы в `docker-compose.yml`.
 
 ## Roadmap
+- [x] Реальные данные заведений (OpenStreetMap)
+- [x] Гео-поиск (радиус от метро/района)
+- [x] LLM-переранжирование шортлиста с объяснением подбора
 - [ ] Валидация initData (HMAC) — доверенный user_id
-- [ ] Реальные данные заведений (OpenStreetMap)
-- [ ] Гео-поиск (PostGIS)
 - [ ] Сессии «выбрать вместе»
-- [ ] React-фронтенд с продакшн-дизайном
+- [ ] Расширить покрытие данных (вся Москва + область)

@@ -1,6 +1,3 @@
-aiogram
-python-dotenv
 gigachat
-fastapi
-uvicorn
+python-dotenv
 psycopg[binary]
