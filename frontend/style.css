@@ -1,50 +1,139 @@
-/* Light styling — presentable, but the real design comes later (Figma). */
+@font-face {
+  font-family: "Sekuya";
+  src: url("fonts/Sekuya-Regular.woff2") format("woff2"),
+       url("fonts/Sekuya-Regular.ttf") format("truetype");
+  font-weight: 400;
+  font-display: swap;
+}
+
+:root { --sono: "Sono", ui-monospace, Menlo, monospace; }
+
 * { box-sizing: border-box; }
 
+html, body { overflow-x: hidden; overscroll-behavior: none; }
+
 body {
-  font-family: system-ui, -apple-system, sans-serif;
-  max-width: 640px;
   margin: 0 auto;
-  padding: 16px;
-  color: #1a1a1a;
-  background: #fafafa;
+  max-width: 420px;
+  min-height: 100vh;
+  padding: max(20px, env(safe-area-inset-top)) 20px 40px;
+  font-family: var(--sono);
+  color: #000;
+  background: #0f0f0d;
 }
 
-header h1 { margin: 4px 0 12px; }
+/* фон: чёрный, зелёное свечение только из углов (как в макете) */
+.bg { position: fixed; inset: 0; overflow: hidden; z-index: 0; background: #0f0f0d; }
+.blob { position: absolute; border-radius: 50%; filter: blur(70px); }
+.blob.lime   { width: 480px; height: 300px; left: -50px;  top: -120px;    background: #b3d732; opacity: .9; }
+.blob.olive1 { width: 320px; height: 320px; right: -140px; top: 40%;      background: #6a7a2a; opacity: .5; }
+.blob.olive2 { width: 360px; height: 300px; left: -90px;  bottom: -150px; background: #5a6a1d; opacity: .6; }
 
-.tabs { display: flex; gap: 6px; margin-bottom: 16px; }
-.tab {
-  flex: 1; padding: 10px; border: 1px solid #ddd; border-radius: 8px;
-  background: #fff; color: #555; font-size: 14px; cursor: pointer;
+/* контент над блобами (стекло размывает блобы позади) */
+header, .search, .stack { position: relative; z-index: 1; }
+
+/* --- шапка --- */
+header h1 {
+  margin: 6px 0 0;
+  font-family: "Sekuya", "Arial Black", system-ui, sans-serif;
+  font-weight: 400;
+  font-size: clamp(1.7rem, 10vw, 2.6rem);
+  letter-spacing: 0;
+  white-space: nowrap;
+  text-align: center;
+  color: #000;
 }
-.tab.active { background: #2563eb; color: #fff; border-color: #2563eb; }
-
-.screen { display: none; }
-.screen.active { display: block; }
-
-.hint { color: #777; margin: 0 0 12px; }
-.muted { color: #999; font-size: 13px; }
-
-form { display: flex; gap: 8px; margin-bottom: 12px; }
-input {
-  flex: 1; padding: 11px; border: 1px solid #ccc; border-radius: 8px; font-size: 16px;
+.sub {
+  margin: 8px 0 12px;
+  font-size: 13px;
+  text-align: center;
+  color: #000;
 }
-form button {
-  padding: 11px 18px; border: 0; border-radius: 8px;
-  background: #2563eb; color: #fff; font-size: 15px; cursor: pointer;
+.examples {
+  margin: 0 0 18px;
+  max-width: 190px;
+  font-weight: 300;
+  font-size: 11px;
+  line-height: 1.35;
+  color: #000;
 }
 
-.card {
-  background: #fff; border: 1px solid #e6e6e6; border-radius: 12px;
-  padding: 14px; margin-top: 12px;
+/* --- поиск (светлое стекло) --- */
+.search {
+  display: flex; align-items: center; gap: 8px;
+  padding: 6px 8px 6px 14px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.5);
+  border: 1px solid rgba(255, 255, 255, 0.5);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  margin-bottom: 16px;
 }
-.card h3 { margin: 0 0 4px; }
-.card p { margin: 4px 0; color: #555; }
-.card .addr { color: #777; font-size: 14px; }
-.card .bill { color: #16a34a; font-weight: 600; }
+.search input {
+  flex: 1; min-width: 0;
+  background: transparent; border: 0; outline: none;
+  color: #000; font: 13px var(--sono);
+}
+.search input::placeholder { color: rgba(0, 0, 0, 0.45); }
+.search .clear {
+  background: transparent; border: 0; color: #000;
+  font-size: 13px; cursor: pointer; padding: 4px 6px;
+}
+.search .find {
+  background: rgba(255, 255, 255, 0.75);
+  border: 0; border-radius: 8px; padding: 7px 14px;
+  color: #000; font: 12px var(--sono); cursor: pointer;
+}
 
-.actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
-.actions button { padding: 8px 12px; border: 0; border-radius: 8px; font-size: 14px; cursor: pointer; }
-.actions .link { background: #eef2ff; color: #2563eb; }
-.actions .like { background: #16a34a; color: #fff; }
-.actions .like:disabled { background: #9ca3af; }
+/* --- колода / карточка (светлое стекло) --- */
+.stack { position: relative; min-height: 460px; }
+.msg { color: #000; text-align: center; padding: 40px 10px; }
+
+.swipe-card {
+  position: relative;
+  padding: 16px 16px 40px;
+  border-radius: 12px;
+  background: rgba(217, 217, 217, 0.42);
+  border: 1px solid rgba(255, 255, 255, 0.45);
+  backdrop-filter: blur(22px);
+  -webkit-backdrop-filter: blur(22px);
+  box-shadow: 0 10px 34px rgba(0, 0, 0, 0.3);
+  color: #000;
+  touch-action: none; user-select: none;
+  transition: transform .25s ease, opacity .25s ease;
+}
+
+.map {
+  height: 150px; border-radius: 10px; overflow: hidden;
+  background: #fff;
+}
+
+.row { display: flex; justify-content: space-between; align-items: baseline; margin-top: 14px; gap: 10px; }
+.name { font: 400 13px var(--sono); color: #000; }
+.price { font: 12px var(--sono); color: #000; white-space: nowrap; }
+.type { margin-top: 4px; font: 300 11px var(--sono); color: #000; }
+
+.links { display: flex; gap: 12px; justify-content: center; margin-top: 18px; }
+.link {
+  background: #fff; border: 0; border-radius: 10px; padding: 8px 18px;
+  color: #000; font: 12px var(--sono); cursor: pointer;
+}
+
+.round {
+  position: absolute; bottom: 10px; width: 46px; height: 46px;
+  border-radius: 16px; cursor: pointer;
+  background: #fff; border: 0; color: #000;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 20px; font-weight: 700;
+}
+.round svg { width: 24px; height: 24px; display: block; }
+.round.no { left: 16px; }
+.round.yes { right: 16px; }
+
+.badge {
+  position: absolute; top: 14px; z-index: 3;
+  padding: 3px 10px; border-radius: 8px; border: 2px solid;
+  font: 700 15px var(--sono); opacity: 0; pointer-events: none;
+}
+.badge.like { right: 14px; transform: rotate(12deg); color: #3a7d00; border-color: #3a7d00; }
+.badge.nope { left: 14px; transform: rotate(-12deg); color: #c0392b; border-color: #c0392b; }
