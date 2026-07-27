@@ -25,3 +25,6 @@ venues.json
 # Дизайн-исходники (макеты, исходный шрифт) — не в код-репо
 Frame*.png
 sekuya/
+
+# Drogon временные загрузки
+backend/uploads/
