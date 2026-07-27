@@ -19,3 +19,9 @@ build/
 
 # Сгенерированная база (собирается fetch_venues.py + load_to_db.py)
 venues.json
+
+.DS_Store
+
+# Дизайн-исходники (макеты, исходный шрифт) — не в код-репо
+Frame*.png
+sekuya/
