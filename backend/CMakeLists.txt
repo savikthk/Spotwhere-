@@ -4,8 +4,10 @@ project(spotwhere_backend CXX)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-# libpq (Postgres C client) — keg-only в Homebrew, подсказываем путь
-set(PostgreSQL_ROOT "/opt/homebrew/opt/libpq")
+# libpq (Postgres C client) — keg-only в Homebrew, подсказываем путь только на macOS
+if(APPLE)
+    set(PostgreSQL_ROOT "/opt/homebrew/opt/libpq")
+endif()
 
 find_package(Drogon CONFIG REQUIRED)
 find_package(PostgreSQL REQUIRED)

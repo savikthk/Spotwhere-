@@ -1,0 +1,46 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+jobs:
+  python:
+    name: Python pipeline
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Проверка синтаксиса скриптов
+        run: python -m py_compile fetch_venues.py enrich_venues.py load_to_db.py
+
+  frontend:
+    name: Frontend
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Проверка синтаксиса JS
+        run: node --check frontend/app.js
+
+  backend:
+    name: C++ backend build
+    runs-on: ubuntu-latest
+    container: drogonframework/drogon:latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Зависимости (libpq, curl)
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends libpq-dev libcurl4-openssl-dev cmake g++
+      - name: Сборка
+        working-directory: backend
+        run: |
+          cmake -B build
+          cmake --build build
