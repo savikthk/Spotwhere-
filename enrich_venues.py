@@ -1,9 +1,3 @@
-"""Обогащение вайб-тегами через GigaChat (одноразовый батч-скрипт).
-
-Читает venues.json, каждому месту добавляет вайб-теги и перезаписывает файл.
-Запуск:  venv/bin/python enrich_venues.py   (нужен GIGACHAT_KEY в .env)
-"""
-
 import json
 import os
 
@@ -42,7 +36,6 @@ def enrich_batch(client, batch):
     return json.loads(content[s:e + 1])
 
 
-# Гарантируем базовый вайб по категории (там, где LLM не проставил).
 BASELINE = {
     "бар": ("шумно", "компания"), "паб": ("шумно", "друзья"),
     "ресторан": ("романтика", "вдвоём"), "кафе": ("тихо", "вдвоём"),
@@ -69,7 +62,7 @@ def main():
     with GigaChat(credentials=KEY, scope="GIGACHAT_API_PERS", verify_ssl_certs=False) as client:
         for i in range(0, len(venues), BATCH):
             batch = venues[i:i + BATCH]
-            for attempt in (1, 2):   # один повтор при сбое
+            for attempt in (1, 2):
                 try:
                     for item in enrich_batch(client, batch):
                         v = by_id.get(item["id"])

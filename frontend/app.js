@@ -1,9 +1,9 @@
 const tg = window.Telegram ? window.Telegram.WebApp : null;
 if (tg) {
   tg.ready();
-  tg.expand();                                            // на полную высоту
-  if (tg.requestFullscreen) try { tg.requestFullscreen(); } catch (e) {}  // Bot API 8.0
-  if (tg.disableVerticalSwipes) tg.disableVerticalSwipes(); // чтобы не «съедало» и не гуляло
+  tg.expand();
+  if (tg.requestFullscreen) try { tg.requestFullscreen(); } catch (e) {}
+  if (tg.disableVerticalSwipes) tg.disableVerticalSwipes();
 }
 
 const USER_ID =
@@ -39,7 +39,6 @@ form.addEventListener("submit", async (event) => {
   startDeck(data.results || []);
 });
 
-// --- swipe deck ---
 let deck = [];
 let pos = 0;
 

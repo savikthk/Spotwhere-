@@ -15,7 +15,7 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
-      - name: Проверка синтаксиса скриптов
+      - name: Compile scripts
         run: python -m py_compile fetch_venues.py enrich_venues.py load_to_db.py
 
   frontend:
@@ -26,7 +26,7 @@ jobs:
       - uses: actions/setup-node@v5
         with:
           node-version: "22"
-      - name: Проверка синтаксиса JS
+      - name: Check JS syntax
         run: node --check frontend/app.js
 
   backend:
@@ -35,11 +35,11 @@ jobs:
     container: drogonframework/drogon:latest
     steps:
       - uses: actions/checkout@v5
-      - name: Зависимости (libpq, curl)
+      - name: Dependencies (libpq, curl)
         run: |
           apt-get update
           apt-get install -y --no-install-recommends libpq-dev libcurl4-openssl-dev cmake g++
-      - name: Сборка
+      - name: Build
         working-directory: backend
         run: |
           cmake -B build

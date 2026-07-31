@@ -1,8 +1,3 @@
-"""Загрузка venues.json в таблицу Postgres (venues) с базовыми вайб-тегами.
-
-Запуск:  venv/bin/python load_to_db.py
-"""
-
 import json
 import os
 
@@ -64,7 +59,7 @@ def main():
             )
         """)
         cur.execute("ALTER TABLE venues ADD COLUMN IF NOT EXISTS address TEXT")
-        cur.execute("TRUNCATE venues")   # свежая загрузка
+        cur.execute("TRUNCATE venues")
         for v in venues:
             cur.execute(
                 "INSERT INTO venues (id, name, description, address, tags, avg_bill, lat, lon, maps_url) "
