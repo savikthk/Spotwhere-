@@ -1,32 +1,60 @@
 # Spotwhere
 
-A Telegram Mini App that tells you **where to go**, described in your own words.
+**Tell it where you want to go — in plain words — and swipe through real places that fit.**
 
-Type a situation — *"a quiet place for two, budget 1500"* or *"bowling with friends near Tverskaya"* — an LLM turns it into structured intent, the backend filters and ranks real Moscow venues, and you swipe through the results. It learns your taste from every like.
+![CI](https://github.com/savikthk/Spotwhere-/actions/workflows/ci.yml/badge.svg)
+![C++17](https://img.shields.io/badge/C%2B%2B-17-00599C?logo=cplusplus&logoColor=white)
+![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16-4169E1?logo=postgresql&logoColor=white)
+![Telegram Mini App](https://img.shields.io/badge/Telegram-Mini%20App-26A5E4?logo=telegram&logoColor=white)
 
-## How it works
+Spotwhere is a Telegram Mini App for deciding **where to go** in Moscow. You describe a situation the way you'd say it to a friend; an LLM turns that into structured intent, a C++ backend filters and ranks ~12.6k real venues, and you get a Tinder-style deck of cards. Every like teaches it your taste.
+
+> **Type this…** → **get this**
+> - *"quiet place for two, budget 1500"* → cosy cafés and wine bars within budget
+> - *"bar near metro Tverskaya"* → Hidden, Beermarket, Let's Rock — all within 800 m of the station
+> - *"bowling with friends"* → Kosmik, Planeta Bowling, Globus
+> - *"banya for a company on the weekend"* → real bathhouses, not restaurants
+
+## Why it's more than a keyword search
+
+- **Two-stage LLM.** GigaChat first *parses* the query into `mood / company / category / location / budget / features`, then *reranks* the algorithm's shortlist to pick the 5 that actually fit — with a deterministic algorithmic fallback if the model misbehaves.
+- **Location that means something.** A named metro or address gets a tight walking radius; a district gets a wider one. Geocoding is cached and retried, so results are fast and repeatable instead of drifting across the city.
+- **It learns you.** Likes and dislikes nudge per-tag weights, so the same query gives better picks the more you use it.
+- **Real data, real coverage.** ~12.6k venues inside the MKAD — cafés, restaurants, bars, pubs, clubs, hookah, plus entertainment: bowling, banya/spa, water parks, trampoline parks, quests, cinemas, dance.
+
+## How a request flows
 
 ```
-free text ──▶ GigaChat parse ──▶ filter + rank ──▶ GigaChat rerank ──▶ swipe cards
-             (mood, company,     (category, geo,     (best 5 of the
-              category, geo,      budget, taste)      shortlist)
-              budget, features)
+free text ──▶ GigaChat parse ──▶ geocode ──▶ filter + rank ──▶ GigaChat rerank ──▶ swipe cards
+             mood, company,      Nominatim    category, radius,   best 5 of the
+             category, budget,   (cached)      budget, vibe,       shortlist
+             location, features                learned taste       (algo fallback)
 ```
 
-1. **Parse** — GigaChat extracts `mood`, `company`, `category`, `location`, `budget` and `features` from the query.
-2. **Geocode** — the location (metro station / district / landmark) is resolved via OpenStreetMap Nominatim; results are cached for speed and determinism.
-3. **Rank** — venues are filtered by category, distance (tight radius for a precise point, wider for a district) and budget, then scored on vibe match and the user's learned taste.
-4. **Rerank** — GigaChat picks the best 5 from the shortlist; if it fails, the algorithm's top 5 are used as a fallback.
-5. **Learn** — likes and dislikes adjust per-tag weights, so recommendations personalize over time.
+## Example
 
-## Stack
+```bash
+curl -X POST localhost:8080/recommend \
+  -H 'Content-Type: application/json' \
+  -d '{"text": "bar near metro Tverskaya", "user_id": 1}'
+```
 
-- **Backend:** C++17 (Drogon), PostgreSQL, GigaChat (LLM), libcurl
-- **Frontend:** Telegram Mini App (HTML/CSS/JS) with Yandex Maps JS API, served by the backend
-- **Data pipeline:** Python — collect venues from OpenStreetMap → enrich with vibe tags via LLM → load into PostgreSQL
-- **CI:** GitHub Actions — backend build, script and frontend syntax checks
-
-The dataset is ~12.6k real venues inside the MKAD: cafes, restaurants, bars, pubs, clubs, hookah lounges, plus entertainment (bowling, banya/spa, water parks, trampoline parks, quests, cinemas, dance).
+```json
+{
+  "query": { "category": "бар", "location": "тверская", "precise": true },
+  "results": [
+    {
+      "id": 1212,
+      "name": "Hidden",
+      "description": "Бар",
+      "tags": ["бар", "коктейли", "веранда", "компания"],
+      "avg_bill": 1500,
+      "lat": 55.7600, "lon": 37.6140,
+      "maps_url": "https://yandex.ru/maps/?text=Hidden%20Москва"
+    }
+  ]
+}
+```
 
 ## Project structure
 
@@ -40,15 +68,17 @@ docker-compose.yml  PostgreSQL
 .github/workflows/  CI
 ```
 
+The backend loads all venues into memory on startup and serves both the REST API and the Mini App itself — no separate web server.
+
 ## Getting started
 
-Requirements (macOS / Homebrew):
+Requirements (macOS / Homebrew) — plus Docker Desktop, a **GigaChat** key (developers.sber.ru) and a bot from **@BotFather**:
 
 ```bash
 brew install cmake drogon libpq curl cloudflared
 ```
 
-Also needed: Docker Desktop (for PostgreSQL), a **GigaChat** key (developers.sber.ru), and a bot from **@BotFather** to open the Mini App.
+Build and run:
 
 ```bash
 git clone https://github.com/savikthk/Spotwhere-.git
@@ -60,18 +90,12 @@ docker compose up -d      # PostgreSQL on localhost:5433
 cd backend
 cmake -B build
 cmake --build build
-```
 
-Run:
-
-```bash
 set -a; source ../.env; set +a
-./build/spotwhere_backend
+./build/spotwhere_backend  # http://localhost:8080
 ```
 
-Open **http://localhost:8080**.
-
-## Populate the venue database
+Populate the database:
 
 ```bash
 pip install -r requirements.txt
@@ -82,7 +106,7 @@ python load_to_db.py       # load into PostgreSQL
 
 ## Open as a Telegram Mini App
 
-Telegram only serves Mini Apps over HTTPS, so expose the local server through a tunnel:
+Telegram serves Mini Apps over HTTPS only, so expose the local server through a tunnel:
 
 ```bash
 cloudflared tunnel --url http://localhost:8080
@@ -102,15 +126,14 @@ Copy the `https://…trycloudflare.com` URL → **@BotFather → /mybots → you
 | POST | `/like` | `{user_id, venue_id}` | like (updates taste) |
 | POST | `/dislike` | `{user_id, venue_id}` | dislike (updates taste) |
 
-## Configuration
-
-Secrets live in `.env` (git-ignored) — see `.env.example` for the template. Dev PostgreSQL credentials are set in `docker-compose.yml`.
+Secrets live in `.env` (git-ignored); see `.env.example`. Dev PostgreSQL credentials are in `docker-compose.yml`.
 
 ## Roadmap
 
 - [x] Real venue data from OpenStreetMap
-- [x] Geo search (radius from a metro station / district)
-- [x] LLM rerank of the shortlist
+- [x] Geo search with a radius from a metro station / district
+- [x] Two-stage LLM: parse + shortlist rerank
+- [x] Taste personalization from likes/dislikes
 - [x] Entertainment categories (bowling, banya, quests, …)
 - [ ] initData validation (HMAC) for a trusted user_id
 - [ ] "Choose together" shared sessions
