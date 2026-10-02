@@ -1,107 +1,126 @@
 # Spotwhere
 
-**Tell it where you want to go — in plain words — and swipe through real places that fit.**
+**Tell it where you want to go, in plain words, and swipe through real places nearby that fit.**
 
 ![CI](https://github.com/savikthk/Spotwhere-/actions/workflows/ci.yml/badge.svg)
-![C++17](https://img.shields.io/badge/C%2B%2B-17-00599C?logo=cplusplus&logoColor=white)
-![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16-4169E1?logo=postgresql&logoColor=white)
+![TypeScript](https://img.shields.io/badge/TypeScript-Node%2024-3178C6?logo=typescript&logoColor=white)
+![PostGIS](https://img.shields.io/badge/PostgreSQL-16%20%2B%20PostGIS-4169E1?logo=postgresql&logoColor=white)
 ![Telegram Mini App](https://img.shields.io/badge/Telegram-Mini%20App-26A5E4?logo=telegram&logoColor=white)
 
-Spotwhere is a Telegram Mini App for deciding **where to go** in Moscow. You describe a situation the way you'd say it to a friend; an LLM turns that into structured intent, a C++ backend filters and ranks ~12.6k real venues, and you get a Tinder-style deck of cards. Every like teaches it your taste.
+Spotwhere is a Telegram Mini App for deciding **where to go** in Moscow. You describe a situation the way you'd say it to a friend, the backend works out what and where you mean, finds real venues around that point among ~12.6k places, and you get a Tinder-style deck of cards. Every like teaches it your taste.
 
 > **Type this…** → **get this**
-> - *"quiet place for two, budget 1500"* → cosy cafés and wine bars within budget
-> - *"bar near metro Tverskaya"* → Hidden, Beermarket, Let's Rock — all within 800 m of the station
-> - *"bowling with friends"* → Kosmik, Planeta Bowling, Globus
-> - *"banya for a company on the weekend"* → real bathhouses, not restaurants
+> - *"бар у метро Тверская"* → bars 60–130 m from the station, nearest first
+> - *"кафе на Арбате"* → cafés inside the Arbat district
+> - *"боулинг с друзьями у Тверской"* → nothing within 800 m, so the search widens to 2.5 km and says so
+> - *"кофейня рядом"* + **Near me** → coffee within 1 km of you
 
-## Why it's more than a keyword search
+## How a request is answered
 
-- **Two-stage LLM.** GigaChat first *parses* the query into `mood / company / category / location / budget / features`, then *reranks* the algorithm's shortlist to pick the 5 that actually fit — with a deterministic algorithmic fallback if the model misbehaves.
-- **Location that means something.** A named metro or address gets a tight walking radius; a district gets a wider one. Geocoding is cached and retried, so results are fast and repeatable instead of drifting across the city.
-- **It learns you.** Likes and dislikes nudge per-tag weights, so the same query gives better picks the more you use it.
-- **Real data, real coverage.** ~12.6k venues inside the MKAD — cafés, restaurants, bars, pubs, clubs, hookah, plus entertainment: bowling, banya/spa, water parks, trampoline parks, quests, cinemas, dance.
-
-## How a request flows
+The algorithm does the work; the language model only fills gaps and picks from a ready shortlist.
 
 ```
-free text ──▶ GigaChat parse ──▶ geocode ──▶ filter + rank ──▶ GigaChat rerank ──▶ swipe cards
-             mood, company,      Nominatim    category, radius,   best 5 of the
-             category, budget,   (cached)      budget, vibe,       shortlist
-             location, features                learned taste       (algo fallback)
+free text ─▶ rules ──────────────▶ place ─────────────▶ PostGIS search ─▶ ranking ─▶ GigaChat pick ─▶ cards
+             category, cuisine,    metro station or      radius or district   wishes, taste,   best 5 of the top 10
+             mood, company,        district from the      polygon, widened     distance         (ids validated,
+             budget, place         gazetteer; landmark    step by step when                     algorithm order
+             (GigaChat only if     via Nominatim; or      nothing is found                      if it fails)
+             rules found nothing)  your location
 ```
+
+- **Rules first.** A vocabulary of categories, cuisines, moods, company, features and budgets ("до 1500", "5к", "недорого") plus a gazetteer of 240 metro stations and 132 districts from OpenStreetMap. Russian word forms are matched by stems, so "у Чистых прудов" finds «Чистые пруды». A station needs a place cue ("у", "возле", "метро", "в районе") unless its name has several words, so "спортивный бар" stays a sports bar, not the «Спортивная» station.
+- **The language model is narrow.** GigaChat is called only when the rules understood nothing or a place stayed unresolved, and its answer is checked against closed lists. It can reorder the top 10 candidates the algorithm found, but never add new ones. If GigaChat is unreachable, it is paused for two minutes and every request is answered by the algorithm alone.
+- **Location that means something.** Distances are computed in PostGIS (`geography`, GiST index). Metro and landmarks get 800 m, your own location 1 km, a district its real polygon. When nothing fits, the radius grows to 1.5, 2.5 and 4 km before the category is relaxed, and the response tells why.
+- **It learns you.** Likes and dislikes nudge per-tag weights (capped at ±2), so the same query gives better picks the more you use it.
 
 ## Example
 
 ```bash
 curl -X POST localhost:8080/recommend \
   -H 'Content-Type: application/json' \
-  -d '{"text": "bar near metro Tverskaya", "user_id": 1}'
+  -d '{"text": "бар у метро Тверская", "user_id": 1}'
 ```
 
 ```json
 {
-  "query": { "category": "бар", "location": "тверская", "precise": true },
+  "query": { "category": "бар", "cuisines": [], "mood": null, "company": null, "features": [], "budget_max": null, "location": "Тверская" },
+  "interpreted_by": "rules",
+  "ranked_by": "algorithm",
+  "place": { "kind": "metro", "name": "Тверская", "lat": 55.764895, "lon": 37.606313, "radius_m": 800 },
+  "notes": [],
   "results": [
     {
       "id": 1212,
-      "name": "Hidden",
+      "name": "Молодость",
       "description": "Бар",
-      "tags": ["бар", "коктейли", "веранда", "компания"],
+      "address": "",
+      "tags": ["бар", "коктейли", "шумно", "компания"],
       "avg_bill": 1500,
-      "lat": 55.7600, "lon": 37.6140,
-      "maps_url": "https://yandex.ru/maps/?text=Hidden%20Москва"
+      "lat": 55.7654, "lon": 37.6059,
+      "maps_url": "https://yandex.ru/maps/?text=...",
+      "distance_m": 62,
+      "matched": []
     }
   ]
 }
 ```
 
+`notes` explain what happened: `place_not_found`, `radius_expanded`, `area_expanded`, `filters_relaxed`, `outside_city`, `location_needed`.
+
 ## Project structure
 
 ```
-backend/            C++ backend (Drogon): REST API + serves the Mini App
+backend/            TypeScript backend (Fastify, PostGIS): REST API + serves the Mini App
+  src/domain/       rules: vocabulary, query parser and gazetteer, ranking
+  src/services/     search, taste, cached geocoding
+  src/llm/          GigaChat adapter (interpret, pick, outage pause)
+  src/geocoding/    Nominatim fallback geocoder
+  migrations/       SQL migrations, applied on start
+  scripts/          places:fetch (OSM gazetteer), db:load (venues + places into PostgreSQL)
+  data/places.json  metro stations and district polygons from OpenStreetMap
+db/Dockerfile       PostgreSQL 16 with PostGIS (native on Apple Silicon)
 frontend/           Telegram Mini App (static)
 fetch_venues.py     collect venues from OpenStreetMap (Overpass) → venues.json
-enrich_venues.py    enrich with vibe tags via GigaChat
-load_to_db.py       load venues.json into PostgreSQL
-docker-compose.yml  PostgreSQL
-.github/workflows/  CI
+enrich_venues.py    enrich with vibe tags via GigaChat (optional)
 ```
-
-The backend loads all venues into memory on startup and serves both the REST API and the Mini App itself — no separate web server.
 
 ## Getting started
 
-Requirements (macOS / Homebrew) — plus Docker Desktop, a **GigaChat** key (developers.sber.ru) and a bot from **@BotFather**:
-
-```bash
-brew install cmake drogon libpq curl cloudflared
-```
-
-Build and run:
+Requirements: Node 24, Docker Desktop, optionally a **GigaChat** key (developers.sber.ru) and a bot from **@BotFather**.
 
 ```bash
 git clone https://github.com/savikthk/Spotwhere-.git
 cd Spotwhere-
 
-cp .env.example .env      # put your GIGACHAT_KEY here
-docker compose up -d      # PostgreSQL on localhost:5433
+cp .env.example .env              # GIGACHAT_KEY is optional
+docker compose up -d --build      # PostgreSQL + PostGIS on localhost:5433
 
 cd backend
-cmake -B build
-cmake --build build
-
-set -a; source ../.env; set +a
-./build/spotwhere_backend  # http://localhost:8080
+npm ci
+npm run db:load                   # venues.json + data/places.json → database
+npm start                         # http://localhost:8080
 ```
 
-Populate the database:
+Without `GIGACHAT_KEY` the app works on rules alone.
+
+### Data
 
 ```bash
 pip install -r requirements.txt
-python fetch_venues.py     # OpenStreetMap → venues.json
-python enrich_venues.py    # add vibe tags via LLM (optional)
-python load_to_db.py       # load into PostgreSQL
+python fetch_venues.py            # OpenStreetMap → venues.json
+python enrich_venues.py           # vibe tags via GigaChat (optional)
+cd backend
+npm run places:fetch              # refresh metro stations and districts (optional, committed)
+npm run db:load
+```
+
+### Tests
+
+```bash
+cd backend
+npm run lint
+npm run typecheck
+npm test                          # unit + integration (needs the database from docker compose)
 ```
 
 ## Open as a Telegram Mini App
@@ -112,29 +131,30 @@ Telegram serves Mini Apps over HTTPS only, so expose the local server through a 
 cloudflared tunnel --url http://localhost:8080
 ```
 
-Copy the `https://…trycloudflare.com` URL → **@BotFather → /mybots → your bot → Bot Settings → Menu Button** → paste it. Open the bot, tap the menu button, and the app loads inside Telegram.
-
-> The free tunnel changes its URL on every restart — update it in BotFather each time.
+Copy the `https://…trycloudflare.com` URL → **@BotFather → /mybots → your bot → Bot Settings → Menu Button** → paste it. Open the bot, tap the menu button, and the app loads inside Telegram. **Near me** asks Telegram for your location (Bot API 8.0 LocationManager); in a regular browser it falls back to browser geolocation.
 
 ## API
 
 | Method | Path | Body | Description |
 |--------|------|------|-------------|
-| GET | `/health` | — | health check |
-| GET | `/venues` | — | list all venues |
-| POST | `/recommend` | `{text, user_id}` | recommend venues for a query |
+| GET | `/health` | | health check |
+| POST | `/recommend` | `{text, user_id?, lat?, lon?}` | recommend venues; `lat`/`lon` only together |
 | POST | `/like` | `{user_id, venue_id}` | like (updates taste) |
 | POST | `/dislike` | `{user_id, venue_id}` | dislike (updates taste) |
 
-Secrets live in `.env` (git-ignored); see `.env.example`. Dev PostgreSQL credentials are in `docker-compose.yml`.
+Invalid input gets `400 {"error": "validation_failed"}`, an unknown venue `404 {"error": "venue_not_found"}`.
+
+Secrets live in `.env` (git-ignored); see `.env.example`.
 
 ## Roadmap
 
 - [x] Real venue data from OpenStreetMap
-- [x] Geo search with a radius from a metro station / district
-- [x] Two-stage LLM: parse + shortlist rerank
+- [x] Geo search in PostGIS: metro stations, districts, your location
+- [x] Rules first, GigaChat only for gaps and for picking from a shortlist
 - [x] Taste personalization from likes/dislikes
-- [x] Entertainment categories (bowling, banya, quests, …)
+- [ ] Landmarks (theatres, parks, squares) in the offline gazetteer
+- [ ] Opening hours from OSM and an "open now" filter
+- [ ] Real vibe tags, addresses and price levels instead of per-category defaults
 - [ ] initData validation (HMAC) for a trusted user_id
-- [ ] "Choose together" shared sessions
-- [ ] Wider data coverage (all of Moscow + region)
+
+Map data © OpenStreetMap contributors, available under the Open Database License.

@@ -1,6 +1,7 @@
 services:
   db:
-    image: postgres:16
+    build: ./db
+    image: spotwhere-db:16-postgis
     container_name: spotwhere_db
     restart: unless-stopped
     environment:

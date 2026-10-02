@@ -28,3 +28,6 @@ sekuya/
 
 # Drogon временные загрузки
 backend/uploads/
+
+# Node
+node_modules/
