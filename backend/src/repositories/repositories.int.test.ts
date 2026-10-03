@@ -60,7 +60,7 @@ beforeEach(async () => {
     venue(4, 'Кофейня', ['кафе'], 55.7652, 37.607, 800),
   ]);
   await places.replaceAll(pool, [
-    { id: 1, kind: 'metro', name: 'Тверская', location: TVERSKAYA, area: null },
+    { id: 1, kind: 'metro', name: 'Тверская', aliases: ['Тверская-Ямская'], location: TVERSKAYA, area: null },
     { id: 2, kind: 'district', name: 'Тверской район', location: { lat: 55.765, lon: 37.61 }, area: SQUARE },
   ]);
 });
@@ -111,8 +111,8 @@ describe('venue search', () => {
 describe('places', () => {
   it('lists places with their points', async () => {
     expect(await places.listAll(pool)).toEqual([
-      { id: 1, kind: 'metro', name: 'Тверская', location: TVERSKAYA },
-      { id: 2, kind: 'district', name: 'Тверской район', location: { lat: 55.765, lon: 37.61 } },
+      { id: 1, kind: 'metro', name: 'Тверская', aliases: ['Тверская-Ямская'], location: TVERSKAYA },
+      { id: 2, kind: 'district', name: 'Тверской район', aliases: [], location: { lat: 55.765, lon: 37.61 } },
     ]);
   });
 });

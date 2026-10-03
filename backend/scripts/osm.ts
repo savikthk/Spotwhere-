@@ -2,10 +2,11 @@ import { distanceMeters } from '../src/domain/geo.ts';
 import type { GeoPoint } from '../src/domain/models.ts';
 import { nameKey } from '../src/domain/text.ts';
 
-export interface OsmNode {
-  type: 'node';
-  lat: number;
-  lon: number;
+export interface OsmElement {
+  type: string;
+  lat?: number;
+  lon?: number;
+  center?: GeoPoint;
   tags?: Record<string, string>;
 }
 
@@ -25,9 +26,10 @@ export type Position = [number, number];
 export type Ring = Position[];
 export type MultiPolygon = Ring[][];
 
-export interface StationPlace {
-  kind: 'metro';
+export interface NamedPlace {
+  kind: 'metro' | 'landmark';
   name: string;
+  aliases: string[];
   lat: number;
   lon: number;
 }
@@ -42,24 +44,40 @@ export interface DistrictPlace {
 
 const SAME_STATION_M = 1500;
 
-export function mergeStations(nodes: readonly OsmNode[]): StationPlace[] {
-  const groups: { name: string; points: GeoPoint[] }[] = [];
-  for (const node of nodes) {
-    const name = node.tags?.name?.trim();
-    if (!name) continue;
-    const point = { lat: node.lat, lon: node.lon };
+const ALIAS_TAGS = ['alt_name', 'short_name'];
+
+function aliasesOf(tags: Record<string, string>, name: string): string[] {
+  return ALIAS_TAGS.flatMap((key) => (tags[key] ?? '').split(';'))
+    .map((alias) => alias.trim())
+    .filter((alias) => alias.length > 0 && nameKey(alias) !== nameKey(name));
+}
+
+export function mergeNamed(elements: readonly OsmElement[], kind: NamedPlace['kind']): NamedPlace[] {
+  const groups: { name: string; aliases: Set<string>; points: GeoPoint[] }[] = [];
+  for (const element of elements) {
+    const name = element.tags?.name?.trim();
+    const lat = element.lat ?? element.center?.lat;
+    const lon = element.lon ?? element.center?.lon;
+    if (!name || lat === undefined || lon === undefined) continue;
+    const point = { lat, lon };
     const group = groups.find(
       (candidate) =>
         nameKey(candidate.name) === nameKey(name) &&
         candidate.points.some((other) => distanceMeters(other, point) <= SAME_STATION_M),
     );
-    if (group) group.points.push(point);
-    else groups.push({ name, points: [point] });
+    const aliases = aliasesOf(element.tags ?? {}, name);
+    if (group) {
+      group.points.push(point);
+      aliases.forEach((alias) => group.aliases.add(alias));
+    } else {
+      groups.push({ name, aliases: new Set(aliases), points: [point] });
+    }
   }
   return groups
-    .map(({ name, points }) => ({
-      kind: 'metro' as const,
+    .map(({ name, aliases, points }) => ({
+      kind,
       name,
+      aliases: [...aliases].sort(),
       lat: round(points.reduce((sum, point) => sum + point.lat, 0) / points.length),
       lon: round(points.reduce((sum, point) => sum + point.lon, 0) / points.length),
     }))

@@ -43,8 +43,9 @@ const loadedVenues = rawVenues.map(toVenue).filter((venue): venue is Venue => ve
 const loadedPlaces = (
   JSON.parse(await readFile(placesFile, 'utf8')) as {
     id: number;
-    kind: 'metro' | 'district';
+    kind: 'metro' | 'district' | 'landmark';
     name: string;
+    aliases?: string[];
     lat: number;
     lon: number;
     area?: number[][][][];
@@ -53,6 +54,7 @@ const loadedPlaces = (
   id: place.id,
   kind: place.kind,
   name: place.name,
+  aliases: place.aliases ?? [],
   location: { lat: place.lat, lon: place.lon },
   area: place.area ?? null,
 }));

@@ -3,10 +3,11 @@ import type { Place, PlaceKind } from './models.ts';
 import { createGazetteer, parseQuery, recognized } from './query.ts';
 
 let nextId = 1;
-const place = (kind: PlaceKind, name: string): Place => ({
+const place = (kind: PlaceKind, name: string, aliases: string[] = []): Place => ({
   id: nextId++,
   kind,
   name,
+  aliases,
   location: { lat: 55.76, lon: 37.6 },
 });
 
@@ -21,6 +22,10 @@ const PLACES = [
   place('district', 'Тверской район'),
   place('district', 'район Арбат'),
   place('district', 'Мещанский район'),
+  place('metro', 'Сокольники'),
+  place('landmark', 'Сокольники'),
+  place('landmark', 'Большой театр'),
+  place('landmark', 'Центральный парк культуры и отдыха имени Горького', ['Парк Горького']),
 ];
 const gazetteer = createGazetteer(PLACES);
 const parse = (text: string) => parseQuery(text, gazetteer);
@@ -49,8 +54,21 @@ describe('place in the query', () => {
     expect(parse('бар у Спортивной').place).toMatchObject({ name: 'Спортивная' });
   });
 
+  it('finds landmarks in any case and by their other names', () => {
+    expect(parse('ресторан у Большого театра').place).toMatchObject({
+      kind: 'landmark',
+      name: 'Большой театр',
+    });
+    expect(parse('кафе у парка Горького').place).toMatchObject({
+      kind: 'landmark',
+      name: 'Центральный парк культуры и отдыха имени Горького',
+    });
+    expect(parse('бар в Сокольниках').place).toMatchObject({ kind: 'metro', name: 'Сокольники' });
+    expect(gazetteer.lookup('Парк Горького')).toMatchObject({ kind: 'landmark' });
+  });
+
   it('keeps an unknown landmark after a cue for geocoding', () => {
-    expect(parse('кафе у Большого театра')).toMatchObject({ place: null, placeText: 'Большого театра' });
+    expect(parse('кафе у Малого театра')).toMatchObject({ place: null, placeText: 'Малого театра' });
     expect(parse('бар на Покровке')).toMatchObject({ placeText: 'Покровке' });
     expect(parse('кафе на двоих').placeText).toBeNull();
   });
@@ -63,7 +81,7 @@ describe('place in the query', () => {
   it('looks up a place named by the language model', () => {
     expect(gazetteer.lookup('метро Тверская')).toMatchObject({ kind: 'metro', name: 'Тверская' });
     expect(gazetteer.lookup('Арбат')).toMatchObject({ kind: 'district', name: 'район Арбат' });
-    expect(gazetteer.lookup('Большой театр')).toBeNull();
+    expect(gazetteer.lookup('Малый театр')).toBeNull();
   });
 });
 

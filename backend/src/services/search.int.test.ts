@@ -52,6 +52,13 @@ const ARBAT = [
 const PLACES: Place[] = [
   { id: 1, kind: 'metro', name: 'Тверская', location: TVERSKAYA },
   { id: 2, kind: 'district', name: 'район Арбат', location: { lat: 55.7505, lon: 37.59 } },
+  {
+    id: 3,
+    kind: 'landmark',
+    name: 'Государственный академический Большой театр',
+    aliases: ['Большой театр'],
+    location: BOLSHOI,
+  },
 ];
 
 const NOTHING: LlmQuery = {
@@ -87,6 +94,7 @@ beforeEach(async () => {
   await places.replaceAll(pool, [
     { ...PLACES[0]!, area: null },
     { ...PLACES[1]!, area: ARBAT },
+    { ...PLACES[2]!, area: null },
   ]);
   geocoder = { geocode: vi.fn<Geocoder['geocode']>().mockResolvedValue(null) };
   interpreter = { interpret: vi.fn<QueryInterpreter['interpret']>().mockResolvedValue(null) };
@@ -137,15 +145,26 @@ describe('searching near a place named in the query', () => {
     expect(ids(found)).toEqual([7]);
   });
 
+  it('finds a known landmark offline', async () => {
+    const found = await service().recommend({
+      text: 'ресторан у Большого театра',
+      userId: null,
+      point: null,
+    });
+    expect(found.area).toMatchObject({ kind: 'landmark', radiusM: 800 });
+    expect(ids(found)).toEqual([9]);
+    expect(geocoder.geocode).not.toHaveBeenCalled();
+  });
+
   it('geocodes an unknown landmark once and remembers it', async () => {
-    geocoder.geocode.mockResolvedValue({ label: 'Большой театр', location: BOLSHOI });
+    geocoder.geocode.mockResolvedValue({ label: 'Малый театр', location: BOLSHOI });
     for (let attempt = 0; attempt < 2; attempt += 1) {
       const found = await service().recommend({
-        text: 'ресторан у Большого театра',
+        text: 'ресторан у Малого театра',
         userId: null,
         point: null,
       });
-      expect(found.area).toMatchObject({ kind: 'geocoded', name: 'Большой театр', radiusM: 800 });
+      expect(found.area).toMatchObject({ kind: 'geocoded', name: 'Малый театр', radiusM: 800 });
       expect(ids(found)).toEqual([9]);
     }
     expect(geocoder.geocode).toHaveBeenCalledTimes(1);

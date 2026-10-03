@@ -143,14 +143,16 @@ interface IndexedPlace {
   stems: string[];
 }
 
-function placeStems(place: Place): string[] {
-  const all = tokenize(place.name).map((token) => token.stem);
-  return place.kind === 'district' ? all.filter((part) => !GENERIC_PLACE_WORDS.has(part)) : all;
+function nameStems(kind: Place['kind'], name: string): string[] {
+  const all = tokenize(name).map((token) => token.stem);
+  return kind === 'district' ? all.filter((part) => !GENERIC_PLACE_WORDS.has(part)) : all;
 }
 
 export function createGazetteer(places: readonly Place[]): Gazetteer {
   const indexed: IndexedPlace[] = places
-    .map((place) => ({ place, stems: placeStems(place) }))
+    .flatMap((place) =>
+      [place.name, ...(place.aliases ?? [])].map((name) => ({ place, stems: nameStems(place.kind, name) })),
+    )
     .filter((entry) => entry.stems.length > 0);
 
   function candidates(tokens: readonly Token[], used: ReadonlySet<number>) {
@@ -185,7 +187,7 @@ export function createGazetteer(places: readonly Place[]): Gazetteer {
         const score =
           entry.stems.length * 10 +
           (districtMarked && entry.place.kind === 'district' ? 5 : 0) +
-          (entry.place.kind === 'metro' ? 1 : 0);
+          (entry.place.kind === 'metro' ? 2 : entry.place.kind === 'landmark' ? 1 : 0);
         if (!best || score > best.score) best = { match: { place: entry.place, start, end }, score };
       }
       return best?.match ?? null;

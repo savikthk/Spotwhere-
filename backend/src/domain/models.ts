@@ -14,12 +14,13 @@ export interface Venue {
   location: GeoPoint;
 }
 
-export const PLACE_KINDS = ['metro', 'district'] as const;
+export const PLACE_KINDS = ['metro', 'district', 'landmark'] as const;
 export type PlaceKind = (typeof PLACE_KINDS)[number];
 
 export interface Place {
   id: number;
   kind: PlaceKind;
   name: string;
+  aliases?: readonly string[];
   location: GeoPoint;
 }

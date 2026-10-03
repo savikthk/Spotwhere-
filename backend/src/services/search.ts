@@ -7,7 +7,7 @@ import type { CandidatePicker, Geocoder, LlmQuery, QueryInterpreter } from '../p
 import * as venues from '../repositories/venues.ts';
 import * as weights from '../repositories/weights.ts';
 
-export type AreaKind = 'user' | 'metro' | 'district' | 'geocoded';
+export type AreaKind = 'user' | 'metro' | 'landmark' | 'district' | 'geocoded';
 
 export interface SearchArea {
   kind: AreaKind;
@@ -52,7 +52,12 @@ export interface SearchDependencies {
   picker: CandidatePicker | null;
 }
 
-const RADIUS_M: Record<Exclude<AreaKind, 'district'>, number> = { user: 1000, metro: 800, geocoded: 800 };
+const RADIUS_M: Record<Exclude<AreaKind, 'district'>, number> = {
+  user: 1000,
+  metro: 800,
+  landmark: 800,
+  geocoded: 800,
+};
 const RADIUS_STEPS_M = [1500, 2500, 4000];
 const DISTRICT_BUFFERS_M = [0, 1000, 2000];
 const DISTRICT_PROXIMITY_M = 2000;
@@ -83,7 +88,13 @@ function merge(rules: ParsedQuery, model: LlmQuery, gazetteer: Gazetteer): Parse
 function placeArea(place: Place): SearchArea {
   return place.kind === 'district'
     ? { kind: 'district', name: place.name, center: place.location, districtId: place.id, radiusM: 0 }
-    : { kind: 'metro', name: place.name, center: place.location, districtId: null, radiusM: RADIUS_M.metro };
+    : {
+        kind: place.kind,
+        name: place.name,
+        center: place.location,
+        districtId: null,
+        radiusM: RADIUS_M[place.kind],
+      };
 }
 
 interface Found {

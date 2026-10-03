@@ -3,24 +3,59 @@ import {
   assembleRings,
   containsPoint,
   districtArea,
-  mergeStations,
+  mergeNamed,
   simplifyRing,
   type Position,
 } from './osm.ts';
 
-describe('mergeStations', () => {
+describe('mergeNamed', () => {
   it('joins platforms of one station and keeps distant namesakes apart', () => {
-    const merged = mergeStations([
-      { type: 'node', lat: 55.752, lon: 37.601, tags: { name: 'Арбатская' } },
-      { type: 'node', lat: 55.754, lon: 37.603, tags: { name: 'Арбатская' } },
-      { type: 'node', lat: 55.9, lon: 37.5, tags: { name: 'Арбатская' } },
-      { type: 'node', lat: 55.765, lon: 37.604, tags: { name: 'Тверская' } },
-      { type: 'node', lat: 55.7, lon: 37.6 },
-    ]);
+    const merged = mergeNamed(
+      [
+        { type: 'node', lat: 55.752, lon: 37.601, tags: { name: 'Арбатская' } },
+        { type: 'node', lat: 55.754, lon: 37.603, tags: { name: 'Арбатская' } },
+        { type: 'node', lat: 55.9, lon: 37.5, tags: { name: 'Арбатская' } },
+        { type: 'node', lat: 55.765, lon: 37.604, tags: { name: 'Тверская' } },
+        { type: 'node', lat: 55.7, lon: 37.6 },
+      ],
+      'metro',
+    );
     expect(merged).toEqual([
-      { kind: 'metro', name: 'Арбатская', lat: 55.753, lon: 37.602 },
-      { kind: 'metro', name: 'Арбатская', lat: 55.9, lon: 37.5 },
-      { kind: 'metro', name: 'Тверская', lat: 55.765, lon: 37.604 },
+      { kind: 'metro', name: 'Арбатская', aliases: [], lat: 55.753, lon: 37.602 },
+      { kind: 'metro', name: 'Арбатская', aliases: [], lat: 55.9, lon: 37.5 },
+      { kind: 'metro', name: 'Тверская', aliases: [], lat: 55.765, lon: 37.604 },
+    ]);
+  });
+
+  it('takes the centre of areas and collects alternative names', () => {
+    const merged = mergeNamed(
+      [
+        {
+          type: 'relation',
+          center: { lat: 55.7298, lon: 37.6031 },
+          tags: {
+            name: 'Центральный парк культуры и отдыха имени Горького',
+            alt_name: 'Парк Горького;ЦПКиО',
+            short_name: 'Парк Горького',
+          },
+        },
+        {
+          type: 'way',
+          center: { lat: 55.7603, lon: 37.6186 },
+          tags: { name: 'Большой театр', alt_name: 'большой театр' },
+        },
+      ],
+      'landmark',
+    );
+    expect(merged).toEqual([
+      { kind: 'landmark', name: 'Большой театр', aliases: [], lat: 55.7603, lon: 37.6186 },
+      {
+        kind: 'landmark',
+        name: 'Центральный парк культуры и отдыха имени Горького',
+        aliases: ['Парк Горького', 'ЦПКиО'],
+        lat: 55.7298,
+        lon: 37.6031,
+      },
     ]);
   });
 });

@@ -28,7 +28,7 @@ free text ─▶ rules ──────────────▶ place ─�
              rules found nothing)  your location
 ```
 
-- **Rules first.** A vocabulary of categories, cuisines, moods, company, features and budgets ("до 1500", "5к", "недорого") plus a gazetteer of 240 metro stations and 132 districts from OpenStreetMap. Russian word forms are matched by stems, so "у Чистых прудов" finds «Чистые пруды». A station needs a place cue ("у", "возле", "метро", "в районе") unless its name has several words, so "спортивный бар" stays a sports bar, not the «Спортивная» station.
+- **Rules first.** A vocabulary of categories, cuisines, moods, company, features and budgets ("до 1500", "5к", "недорого") plus a gazetteer of 240 metro stations, 667 landmarks (theatres, museums, parks, squares) and 132 districts from OpenStreetMap. Russian word forms are matched by stems, so "у Чистых прудов" finds «Чистые пруды». A station needs a place cue ("у", "возле", "метро", "в районе") unless its name has several words, so "спортивный бар" stays a sports bar, not the «Спортивная» station.
 - **The language model is narrow.** GigaChat is called only when the rules understood nothing or a place stayed unresolved, and its answer is checked against closed lists. It can reorder the top 10 candidates the algorithm found, but never add new ones. If GigaChat is unreachable, it is paused for two minutes and every request is answered by the algorithm alone.
 - **Location that means something.** Distances are computed in PostGIS (`geography`, GiST index). Metro and landmarks get 800 m, your own location 1 km, a district its real polygon. When nothing fits, the radius grows to 1.5, 2.5 and 4 km before the category is relaxed, and the response tells why.
 - **It learns you.** Likes and dislikes nudge per-tag weights (capped at ±2), so the same query gives better picks the more you use it.
@@ -77,7 +77,7 @@ backend/            TypeScript backend (Fastify, PostGIS): REST API + serves the
   src/geocoding/    Nominatim fallback geocoder
   migrations/       SQL migrations, applied on start
   scripts/          places:fetch (OSM gazetteer), db:load (venues + places into PostgreSQL)
-  data/places.json  metro stations and district polygons from OpenStreetMap
+  data/places.json  metro stations, landmarks and district polygons from OpenStreetMap
 db/Dockerfile       PostgreSQL 16 with PostGIS (native on Apple Silicon)
 frontend/           Telegram Mini App (static)
 fetch_venues.py     collect venues from OpenStreetMap (Overpass) → venues.json
@@ -152,7 +152,7 @@ Secrets live in `.env` (git-ignored); see `.env.example`.
 - [x] Geo search in PostGIS: metro stations, districts, your location
 - [x] Rules first, GigaChat only for gaps and for picking from a shortlist
 - [x] Taste personalization from likes/dislikes
-- [ ] Landmarks (theatres, parks, squares) in the offline gazetteer
+- [x] Landmarks (theatres, parks, squares) in the offline gazetteer
 - [ ] Opening hours from OSM and an "open now" filter
 - [ ] Real vibe tags, addresses and price levels instead of per-category defaults
 - [ ] initData validation (HMAC) for a trusted user_id
