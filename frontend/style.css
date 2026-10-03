@@ -28,7 +28,7 @@ body {
 .blob.olive1 { width: 320px; height: 320px; right: -140px; top: 40%;      background: #6a7a2a; opacity: .5; }
 .blob.olive2 { width: 360px; height: 300px; left: -90px;  bottom: -150px; background: #5a6a1d; opacity: .6; }
 
-header, .search, .stack { position: relative; z-index: 1; }
+header, .search, .context, .stack { position: relative; z-index: 1; }
 
 header h1 {
   margin: 6px 0 0;
@@ -80,6 +80,30 @@ header h1 {
   border: 0; border-radius: 8px; padding: 7px 14px;
   color: #000; font: 12px var(--sono); cursor: pointer;
 }
+
+.search .near {
+  background: transparent;
+  border: 1px solid rgba(0, 0, 0, 0.35); border-radius: 8px; padding: 6px 10px;
+  color: #000; font: 12px var(--sono); cursor: pointer; white-space: nowrap;
+}
+.search .near[aria-pressed="true"] { background: #b3d732; border-color: #b3d732; }
+.search .near:disabled { opacity: .5; cursor: progress; }
+
+.context {
+  margin: -6px 0 14px;
+  padding: 8px 12px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.35);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  font: 300 11px/1.4 var(--sono);
+  color: #000;
+}
+.context p { margin: 0; }
+.context p + p { margin-top: 4px; }
+.context .where { font-weight: 400; }
+
+.distance { font-weight: 400; }
 
 .stack { position: relative; min-height: 460px; }
 .msg { color: #000; text-align: center; padding: 40px 10px; }

@@ -1,0 +1,37 @@
+{
+  "name": "spotwhere-backend",
+  "version": "0.2.0",
+  "private": true,
+  "description": "Spotwhere backend: venue search API and the Telegram Mini App host",
+  "license": "MIT",
+  "type": "module",
+  "engines": {
+    "node": ">=24.11"
+  },
+  "scripts": {
+    "dev": "NODE_EXTRA_CA_CERTS=certs/russian_trusted_root_ca.pem node --watch --env-file-if-exists=../.env src/main.ts",
+    "start": "NODE_EXTRA_CA_CERTS=certs/russian_trusted_root_ca.pem node --env-file-if-exists=../.env src/main.ts",
+    "lint": "prettier --check .",
+    "format": "prettier --write .",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:unit": "vitest run --project unit",
+    "test:integration": "vitest run --project integration",
+    "places:fetch": "node scripts/fetch-places.ts",
+    "db:load": "node --env-file-if-exists=../.env scripts/load-data.ts"
+  },
+  "dependencies": {
+    "@fastify/static": "10.1.5",
+    "fastify": "5.12.5",
+    "fastify-type-provider-zod": "7.0.0",
+    "pg": "8.23.0",
+    "zod": "4.6.5"
+  },
+  "devDependencies": {
+    "@types/node": "24.13.6",
+    "@types/pg": "8.23.1",
+    "prettier": "3.9.9",
+    "typescript": "6.0.3",
+    "vitest": "4.1.11"
+  }
+}

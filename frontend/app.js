@@ -17,26 +17,124 @@ function openExternal(url) {
 const form = document.getElementById("search-form");
 const queryEl = document.getElementById("query");
 const stackEl = document.getElementById("stack");
+const nearEl = document.getElementById("near");
+const contextEl = document.getElementById("context");
+
+let point = null;
+
+function formatDistance(meters) {
+  if (meters < 1000) return `${Math.max(10, Math.round(meters / 10) * 10)} m`;
+  return `${(meters / 1000).toFixed(1).replace(/\.0$/, "")} km`;
+}
+
+function placeLine(place) {
+  if (!place) return "Across the whole city";
+  const within = place.radius_m ? ` · within ${formatDistance(place.radius_m)}` : "";
+  switch (place.kind) {
+    case "metro": return `Near metro «${place.name}»${within}`;
+    case "district": return `In ${place.name}`;
+    case "user": return `Near you${within}`;
+    default: return `Near «${place.name}»${within}`;
+  }
+}
+
+function noteLine(note) {
+  switch (note.code) {
+    case "radius_expanded": return `Nothing closer, so the search widened to ${formatDistance(note.radius_m)}`;
+    case "area_expanded": return `Nothing inside, so the search took ${formatDistance(note.buffer_m)} around`;
+    case "filters_relaxed": return "No exact matches nearby, showing other places";
+    case "place_not_found": return `Couldn't find «${note.text}» on the map, searching the whole city`;
+    case "outside_city": return "You're outside Moscow, searching the whole city";
+    case "location_needed": return "Tap «Near me» to search around you";
+    default: return "";
+  }
+}
+
+function showContext(lines) {
+  contextEl.replaceChildren();
+  lines.filter(Boolean).forEach((line, index) => {
+    const p = document.createElement("p");
+    if (index === 0) p.className = "where";
+    p.textContent = line;
+    contextEl.appendChild(p);
+  });
+  contextEl.hidden = contextEl.childElementCount === 0;
+}
+
+function locate() {
+  const manager = tg && tg.LocationManager;
+  if (manager) {
+    return new Promise((resolve) => {
+      const read = () => {
+        if (!manager.isLocationAvailable) return resolve(null);
+        manager.getLocation((data) => resolve(data ? { lat: data.latitude, lon: data.longitude } : null));
+      };
+      if (manager.isInited) read();
+      else manager.init(read);
+    });
+  }
+  if (navigator.geolocation) {
+    return new Promise((resolve) => {
+      navigator.geolocation.getCurrentPosition(
+        (position) => resolve({ lat: position.coords.latitude, lon: position.coords.longitude }),
+        () => resolve(null),
+        { enableHighAccuracy: false, timeout: 8000, maximumAge: 60000 }
+      );
+    });
+  }
+  return Promise.resolve(null);
+}
+
+nearEl.addEventListener("click", async () => {
+  if (point) {
+    point = null;
+    nearEl.setAttribute("aria-pressed", "false");
+    showContext([]);
+    return;
+  }
+  nearEl.disabled = true;
+  nearEl.textContent = "Locating…";
+  point = await locate();
+  nearEl.disabled = false;
+  nearEl.textContent = "Near me";
+  nearEl.setAttribute("aria-pressed", point ? "true" : "false");
+  showContext([point ? "Searching around you" : "Couldn't get your location. Allow it in Telegram settings"]);
+  if (point && queryEl.value.trim()) form.requestSubmit();
+});
 
 document.getElementById("clear").addEventListener("click", () => {
   queryEl.value = "";
-  stackEl.innerHTML = "";
+  stackEl.replaceChildren();
+  showContext([]);
   queryEl.focus();
 });
+
+function message(text) {
+  const p = document.createElement("p");
+  p.className = "msg";
+  p.textContent = text;
+  stackEl.replaceChildren(p);
+}
 
 form.addEventListener("submit", async (event) => {
   event.preventDefault();
   const text = queryEl.value.trim();
   if (!text) return;
-  stackEl.innerHTML = '<p class="msg">Searching…</p>';
+  message("Searching…");
 
-  const res = await fetch("/recommend", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ text, user_id: USER_ID }),
-  });
-  const data = await res.json();
-  startDeck(data.results || []);
+  try {
+    const res = await fetch("/recommend", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text, user_id: USER_ID, ...(point || {}) }),
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    showContext([placeLine(data.place), ...data.notes.map(noteLine)]);
+    startDeck(data.results || []);
+  } catch (error) {
+    message("Something went wrong. Try again in a moment.");
+  }
 });
 
 let deck = [];
@@ -48,32 +146,40 @@ function startDeck(list) {
   renderTop();
 }
 
+const CARD = `
+  <div class="badge like">LIKE</div>
+  <div class="badge nope">NOPE</div>
+  <div class="map"></div>
+  <div class="row">
+    <span class="name"></span>
+    <span class="price"></span>
+  </div>
+  <div class="type"><span class="distance"></span><span class="about"></span></div>
+  <div class="links">
+    <button class="link" data-act="map">On the map</button>
+    <button class="link" data-act="route">Route</button>
+  </div>
+  <button class="round no" aria-label="dislike"><svg viewBox="0 0 24 24"><path d="M7 7 L17 17 M17 7 L7 17" fill="none" stroke="currentColor" stroke-width="3.4" stroke-linecap="round"/></svg></button>
+  <button class="round yes" aria-label="like">♥</button>
+`;
+
 function renderTop() {
-  stackEl.innerHTML = "";
   if (pos >= deck.length) {
-    stackEl.innerHTML = '<p class="msg">That\'s all 🙌 Refine your request or search again.</p>';
+    message(deck.length ? "That's all 🙌 Refine your request or search again." : "Nothing found. Try other words or another place.");
     return;
   }
 
   const v = deck[pos];
   const card = document.createElement("div");
   card.className = "swipe-card";
-  card.innerHTML = `
-    <div class="badge like">LIKE</div>
-    <div class="badge nope">NOPE</div>
-    <div class="map" id="map-${v.id}"></div>
-    <div class="row">
-      <span class="name">${v.name}</span>
-      <span class="price">~${v.avg_bill} ₽</span>
-    </div>
-    <div class="type">${v.description}${v.address ? " · " + v.address : ""}</div>
-    <div class="links">
-      <button class="link" data-act="map">On the map</button>
-      <button class="link" data-act="route">Route</button>
-    </div>
-    <button class="round no" aria-label="dislike"><svg viewBox="0 0 24 24"><path d="M7 7 L17 17 M17 7 L7 17" fill="none" stroke="currentColor" stroke-width="3.4" stroke-linecap="round"/></svg></button>
-    <button class="round yes" aria-label="like">♥</button>
-  `;
+  card.innerHTML = CARD;
+  card.querySelector(".name").textContent = v.name;
+  card.querySelector(".price").textContent = `~${v.avg_bill} ₽`;
+  card.querySelector(".distance").textContent = v.distance_m === null ? "" : `${formatDistance(v.distance_m)} · `;
+  card.querySelector(".about").textContent = v.description + (v.address ? ` · ${v.address}` : "");
+  const map = card.querySelector(".map");
+  map.id = `map-${v.id}`;
+
   card.querySelector('[data-act="map"]').addEventListener("click", () => openExternal(v.maps_url));
   card.querySelector('[data-act="route"]').addEventListener("click", () =>
     openExternal(`https://yandex.ru/maps/?rtext=~${v.lat},${v.lon}`)
@@ -85,10 +191,10 @@ function renderTop() {
 
   card.style.transform = "scale(.96)";
   card.style.opacity = "0";
-  stackEl.appendChild(card);
+  stackEl.replaceChildren(card);
   requestAnimationFrame(() => { card.style.transform = ""; card.style.opacity = "1"; });
 
-  initMap(`map-${v.id}`, v.lat, v.lon);
+  initMap(map.id, v.lat, v.lon);
 }
 
 function attachDrag(card) {

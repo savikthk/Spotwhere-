@@ -27,8 +27,11 @@
   <form id="search-form" class="search">
     <input id="query" placeholder="..." autocomplete="off">
     <button type="button" id="clear" class="clear" aria-label="Clear">✕</button>
+    <button type="button" id="near" class="near" aria-pressed="false">Near me</button>
     <button type="submit" class="find">Find</button>
   </form>
+
+  <div id="context" class="context" hidden></div>
 
   <div id="stack" class="stack"></div>
 

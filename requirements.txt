@@ -1,3 +1,2 @@
 gigachat
 python-dotenv
-psycopg[binary]
